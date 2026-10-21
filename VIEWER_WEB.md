@@ -39,7 +39,7 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
     for each costume (about 2.5 min each; they can run in parallel); then one line in `src/catalog.js`.
   - `python tools/shellpics.py disc/SHELL ../wotm-model-museum/public` (11 stage pictures in `stages/` and 10 logos in
     `logos/`, from `SHELL.TEX/.RTX`).
-- **All 11 monsters (2026-10-21):** 42 costumes, every animation; 112 MB in `public/models` (3,707 files, all pass the glTF
+- **All 11 monsters (2026-10-21):** 42 costumes, every animation; 112 MB at the time in `public/models` (3,707 files, all pass the glTF
   validator). Costumes only share animation files when they are byte-identical: rigid parts often differ per costume (Preytor's
   four costumes each have their own parts), so a costume's differing files go to `<PREFIX>_<costume>/` and the list inside its
   `.glb` points at them. Done by `merge.py` (kept outside the repos, in `wotm-export-tmp/`): export each costume with
@@ -52,8 +52,22 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   animation per costume group, max distance 0.026 units (the key-reduction tolerance).
 - **Goliath Prime costume 0** (`ASSBOSS0.NGP`, March 2002, gray, 59 animations) looks like an early version left on the disc;
   the select calls it "early version".
-- **Next:** step 5 (GS blending and scrolling textures: Kineticlops, its negative costume), step 6 (Agamo's and Magmo
-  costume 4's fire, lens flare); animation names when the decomp names them.
+- **Effects (steps 5 and 6, 2026-10-21)**, ported from the game port's renderer (`native/wotm_model.hpp`), in `src/effects.js`:
+  - **PS2 blend modes:** each material carries `extras.gs` ({blend: ALPHA_1, aref, zmsk}); the page sets custom blend factors
+    and the shader output per mode (additive 0x48, subtractive 0x42, darken 0x46, the "negative" 0x81 of Kineticlops costume 3)
+    and the GS alpha test (discard As·128 <= aref). The stage picture is now drawn in WebGL (it used to sit behind a transparent
+    canvas), so the subtractive and negative modes have something to act on.
+  - **Scrolling textures:** objects with uvScroll get uv keys; Kineticlops and Agamo loop a separate layer animation (0x91,
+    scene `extras.uvLayer`, no longer listed as an animation), the rest come with each animation (`extras.uv`). The page moves
+    the texture offset.
+  - **Fire** (preset 141 IdolHeadFlame: Agamo, Magmo costume 4) and **lens flares** (HierLight with hasLensFlare: Robo-47
+    costumes 1-3, Congar 2-4, Goliath final): `fx_<node>_<n>` nodes animated with the effect's matrix (scale 0 when off),
+    parameters in `extras.fx`. The fire is simulated per game field (pauses with the player); flares are 18 screen sprites.
+    Textures in `public/fx/` (from `LVL/CENTRAL.TEX/.RTX`, `wotm-export-tmp/fxtex.py`).
+  - Re-export: 140 MB, 4,724 files, all pass the validator. Costumes share fewer animation files now (effect nodes differ).
+  - The transparent "Save image" crops to the content (drops fully transparent margins). Additive glows (fire, flares)
+    don't carry alpha, so they stay out of the transparent picture.
+- **Next:** animation names when the decomp names them.
 
 ## Keeping this repo apart from the decomp
 - **This repo is separate from `WoTM` on purpose.** The extracted models belong to Sony; sites like this (Models-Resource) live

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MONSTERS, STAGES } from "./catalog.js";
+import { applyGs, Background, Effects, UvScroll } from "./effects.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -15,7 +16,6 @@ const PITCH = THREE.MathUtils.degToRad(8);
 const FOVY = 30;
 
 const canvas = document.getElementById("scene");
-const backdrop = document.getElementById("backdrop");
 const selMonster = document.getElementById("monster");
 const selAnim = document.getElementById("anim");
 const stageGrid = document.getElementById("stage-grid");
@@ -34,7 +34,12 @@ const loadingText = document.getElementById("loader-text");
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
-renderer.setClearColor(0x000000, 0);
+renderer.autoClear = false;
+const background = new Background();
+
+// Lens flares are drawn over everything, in screen pixels (x right, y down)
+const overlay = new THREE.Scene();
+const overlayCamera = new THREE.OrthographicCamera(0, 1, 0, 1, -1, 1);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(FOVY, 1, 1, 10000);
@@ -168,8 +173,7 @@ let stage = STAGES[0].file;
 function setStage(file) {
   stage = file;
   const custom = file === CUSTOM;
-  backdrop.style.backgroundImage = custom ? "none" : `url("${BASE}stages/${file}.png")`;
-  backdrop.style.backgroundColor = custom ? colorInput.value : "";
+  background.setPicture(custom ? null : `${BASE}stages/${file}.png`).catch((e) => console.error(e));
   colorRow.hidden = !custom;
   const radio = stageGrid.querySelector(`input[value="${file}"]`);
   if (radio) radio.checked = true;
@@ -179,7 +183,7 @@ function setStage(file) {
 function setColor(hex) {
   colorInput.value = hex;
   customSwatch.style.background = hex;
-  if (stage === CUSTOM) backdrop.style.backgroundColor = hex;
+  background.setColor(hex);
   remember("bgcolor", hex);
 }
 colorInput.addEventListener("input", () => setColor(colorInput.value));
@@ -198,12 +202,14 @@ function makeMaterial(original) {
     alphaTest: original.alphaTest,
     side: original.side,
     depthWrite: original.depthWrite,
+    opacity: original.opacity,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
     flatShading: true, // hard shading: one normal per triangle (the game's own normals are smoothed)
   });
   if (m.map) m.map.colorSpace = THREE.NoColorSpace;
+  applyGs(m, original.userData.gs); // the PS2 blend mode and alpha test (extras.gs from the exporter)
   m.name = original.name;
   original.dispose();
   return m;
@@ -319,6 +325,7 @@ function applyLayers() {
     else o.material.visible = l.mesh;
   });
   current.bones.visible = l.bones && current.root.visible;
+  current.effects.visible = l.mesh && current.root.visible; // fire and flares go with the solid mesh
 }
 
 
@@ -347,13 +354,14 @@ function cameraLimits(dist) {
 }
 
 // Fixed box over the whole idle (Model::computeFraming): without it the camera "dances" with the animation
-function frame(root, mixer, clip, zoom) {
+function frame(root, mixer, clip, zoom, effects) {
   const box = new THREE.Box3();
   const samples = 24;
   for (let s = 0; s < samples; s++) {
     mixer.setTime((clip.duration * s) / samples);
     root.updateMatrixWorld(true);
     box.expandByObject(root, true);
+    effects.expandBox(box);
   }
   mixer.setTime(0);
   const center = box.getCenter(new THREE.Vector3());
@@ -383,7 +391,7 @@ async function setMonster(file) {
   remember("monster", file);
 
   // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
-  if (current) current.root.visible = current.bones.visible = false;
+  if (current) current.root.visible = current.bones.visible = current.effects.visible = false;
   player.hidden = true;
   selAnim.disabled = true;
   download.hidden = true;
@@ -432,13 +440,19 @@ async function setMonster(file) {
   const mixer = new THREE.AnimationMixer(root);
   const clip = gltf.animations.find((a) => a.name === "idle") ?? gltf.animations[0];
   const action = clip ? mixer.clipAction(clip).play() : null;
-  if (clip) frame(root, mixer, clip, mon?.zoom ?? 1);
+  const effects = new Effects(root);
+  if (clip) {
+    frame(root, mixer, clip, mon?.zoom ?? 1, effects);
+    clip.uvTracks = animExtras(gltf, 0)?.uv;
+  }
 
   if (current) {
-    scene.remove(current.root, current.bones);
+    scene.remove(current.root, current.bones, ...current.effects.sceneObjects);
+    for (const o of current.effects.overlayObjects) overlay.remove(o);
     current.mixer.stopAllAction();
     dispose(current.root);
     disposeBones(current.bones);
+    current.effects.dispose();
   }
   // The skeleton is the "boneN" joints. The exporter also makes copies ("boneN@obj", under an "off_obj" node) for meshes the
   // game moves or hides after skinning (Agamo, Zorgulon), plus helper joints ("static_", "off_"): skinning uses them,
@@ -447,8 +461,10 @@ async function setMonster(file) {
     if (o.isBone && !/^bone[^@]*$/.test(o.name)) o.isBone = false;
   });
   const bones = makeBones(root);
-  scene.add(root, bones);
-  current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip };
+  scene.add(root, bones, ...effects.sceneObjects);
+  for (const o of effects.overlayObjects) overlay.add(o);
+  const uv = new UvScroll(root);
+  current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip, effects, uv };
   applyLayers();
   setupPlayer();
   fillAnims(root.userData.animations ?? []);
@@ -469,6 +485,32 @@ function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
+// Transparent picture: drop the fully transparent margins (crop to the box of every pixel with alpha > 0)
+function cropToContent(src) {
+  const { width: w, height: h } = src;
+  const px = src.getContext("2d").getImageData(0, 0, w, h).data;
+  let x0 = w;
+  let y0 = h;
+  let x1 = -1;
+  let y1 = -1;
+  for (let y = 0; y < h; y++) {
+    const row = y * w * 4;
+    for (let x = 0; x < w; x++) {
+      if (px[row + x * 4 + 3] === 0) continue;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      y0 = Math.min(y0, y);
+      y1 = y;
+    }
+  }
+  if (x1 < 0) return src; // nothing drawn: keep the full frame
+  const out = document.createElement("canvas");
+  out.width = x1 - x0 + 1;
+  out.height = y1 - y0 + 1;
+  out.getContext("2d").drawImage(src, -x0, -y0);
+  return out;
+}
+
 async function saveImage(transparent) {
   const w = canvas.width;
   const h = canvas.height;
@@ -477,27 +519,12 @@ async function saveImage(transparent) {
   out.height = h;
   const ctx = out.getContext("2d");
   let bgName = "custom";
-  if (transparent) {
-    bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
-  } else if (stage === CUSTOM) {
-    ctx.fillStyle = colorInput.value;
-    ctx.fillRect(0, 0, w, h);
-  } else {
-    const img = new Image();
-    img.src = `${BASE}stages/${stage}.png`;
-    await img.decode();
-    // same crop as the page's "background-size: cover; background-position: center"
-    const k = Math.max(w / img.naturalWidth, h / img.naturalHeight);
-    const dw = img.naturalWidth * k;
-    const dh = img.naturalHeight * k;
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
-    bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
-  }
+  if (transparent) bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
+  else if (stage !== CUSTOM) bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
   // the WebGL canvas is only readable right after a render, in the same task: render, then copy at once
-  renderer.render(scene, camera);
+  draw(transparent);
   ctx.drawImage(canvas, 0, 0);
-  const blob = await new Promise((r) => out.toBlob(r, "image/png"));
+  const blob = await new Promise((r) => (transparent ? cropToContent(out) : out).toBlob(r, "image/png"));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `${slug(monsterOf(selMonster.value)?.name ?? "monster")}_${slug(bgName)}.png`;
@@ -623,6 +650,7 @@ async function setAnim(a) {
     try {
       const g = await gltfLoader.loadAsync(url);
       clip = g.animations[0];
+      clip.uvTracks = animExtras(g, 0)?.uv;
       clipCache.set(url, clip);
     } catch (e) {
       console.error(e);
@@ -646,6 +674,11 @@ selAnim.addEventListener("change", () => {
   const a = current?.anims?.find((x) => String(x.k) === selAnim.value);
   if (a) setAnim(a);
 });
+
+// GLTFLoader doesn't keep animation extras: the scrolling texture keys (extras.uv) are read from the file's JSON
+function animExtras(gltf, i) {
+  return gltf.parser?.json?.animations?.[i]?.extras;
+}
 
 // ---- animation player. The exporter samples every animation at 60 frames per second, so frame n is at time n / 60.
 const FPS = 60;
@@ -738,6 +771,22 @@ function resize() {
   }
 }
 
+// background, then the 3D scene, then the lens flares on top
+function draw(transparent = false) {
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  background.draw(renderer, canvas.width, canvas.height, transparent);
+  if (current) {
+    current.root.updateMatrixWorld();
+    current.effects.updateFlares(camera, w, h);
+  }
+  renderer.render(scene, camera);
+  overlayCamera.right = w;
+  overlayCamera.bottom = h;
+  overlayCamera.updateProjectionMatrix();
+  renderer.render(overlay, overlayCamera);
+}
+
 renderer.setAnimationLoop(() => {
   resize();
   const now = performance.now();
@@ -746,12 +795,15 @@ renderer.setAnimationLoop(() => {
     showFrame();
   }
   lastTime = now;
-  if (current?.bones.visible) {
-    current.root.updateMatrixWorld();
-    updateJoints(current.bones);
-  }
   controls.update();
-  renderer.render(scene, camera);
+  if (current) {
+    const t = current.action?.time ?? 0;
+    current.uv.update(t, current.action?.getClip().uvTracks);
+    current.root.updateMatrixWorld();
+    current.effects.update(t * FPS, camera);
+    if (current.bones.visible) updateJoints(current.bones);
+  }
+  draw();
 });
 
 // ---- start

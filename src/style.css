@@ -25,14 +25,6 @@ body {
   font: 14px/1.4 system-ui, "Segoe UI", Roboto, sans-serif;
 }
 
-/* stage picture behind the canvas (the canvas is transparent) */
-#backdrop {
-  position: fixed;
-  inset: 0;
-  background: #16131b center / cover no-repeat;
-  transition: background-image 0.25s;
-}
-
 #scene {
   position: fixed;
   inset: 0;
