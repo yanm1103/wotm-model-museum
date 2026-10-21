@@ -67,6 +67,18 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   - Re-export: 140 MB, 4,724 files, all pass the validator. Costumes share fewer animation files now (effect nodes differ).
   - The transparent "Save image" crops to the content (drops fully transparent margins). Additive glows (fire, flares)
     don't carry alpha, so they stay out of the transparent picture.
+- **Bosses (2026-10-21):** "Plant boss" and "Final boss" in the monster select.
+  - Plant (`PLANT0`): pieces of the 3-MILE level, put together where `PlantBoss.cpp` places them: base (0x2728) at the
+    origin and the three heads (0x271B..0x271D) at their `wakeUp` offsets, with each head's switch 999 turned on (the parts
+    the fight shows). Animations are per piece ("Head: Animation n" plays on the three heads, "Base: ..."), the other piece
+    staying in its resting animation (head id 0, base id 1). The game picks animations by id (`animationGetHandle`), not
+    by table position, and the heads' tables are in different orders, so pieces are matched by id. `PLANT1` is one root
+    (0x271E) on its own: the game puts ten around the player, up to 1075 units away.
+  - Final boss: stage 1 is the Mecha from CAPITOL (0x27A6, with the turret 0x27A7 looping its animation 1 as
+    `FinalBoss::initAfter` starts it; the laser 0x27A9 at rest), stage 2 `MON/JELLY0` (it has a lens flare), stage 3
+    `MON/FINAL0`. The separate 0x27A8 piece (one object) is left out: nothing in the decomp shows what it is yet.
+  - `monglb.py --boss plant|root|mecha` (level `.NGP` as input); keys are 100 * piece + index, `extras.animations` entries
+    carry `part` and `first` (the animation the base file starts in, since bosses have no idle 90).
 - **Next:** animation names when the decomp names them.
 
 ## Keeping this repo apart from the decomp

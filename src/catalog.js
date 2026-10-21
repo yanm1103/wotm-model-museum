@@ -16,6 +16,11 @@ export const MONSTERS = [
   { prefix: "ALIEN", name: "Zorgulon", costumes: [0, 1, 2, 3] },
   // ASSBOSS0.NGP (March 2002, gray, 59 animations) looks like an early version left on the disc; ASSBOSS1 is the final boss
   { prefix: "ASSBOSS", name: "Goliath Prime", costumes: [0, 1], labels: ["early version", "final"] },
+  // Bosses. The plant is put together from pieces of the 3-MILE level (base and three heads where the game places them;
+  // one root on its own) and the Mecha from CAPITOL (monglb.py --boss); the jelly and the last form are MON/JELLY0 and
+  // MON/FINAL0. Their animations are listed per piece ("Head", "Base").
+  { prefix: "PLANT", name: "Plant boss", costumes: [0, 1], labels: ["full", "root"] },
+  { prefix: "FINALBOSS", name: "Final boss", costumes: [0, 1, 2], labels: ["stage 1: Mecha", "stage 2: Jelly", "stage 3"] },
 ];
 
 // Stage pictures from the game menu (WoTM/tools/shellpics.py), in game order

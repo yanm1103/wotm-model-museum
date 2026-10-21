@@ -604,18 +604,30 @@ const IDLE_ID = 90;
 const clipCache = new Map(); // url -> AnimationClip
 let animRequest = 0;
 
+// Bosses made of pieces (the plant) list each piece's animations: a.part is "Head", "Base"... (the other pieces keep
+// their resting animation). a.first marks the animation the model file starts in (bosses have no idle 90).
 function animLabel(a, list) {
-  if (a.id === IDLE_ID) return `Idle (${a.frames - 1} frames)`;
-  const same = list.filter((b) => b.id === a.id);
+  if (a.id === IDLE_ID && !a.part) return `Idle (${a.frames - 1} frames)`;
+  const same = list.filter((b) => b.id === a.id && b.part === a.part);
   const n = same.length > 1 ? ` #${same.indexOf(a) + 1}` : "";
-  return `Animation ${a.id}${n} (${a.frames - 1} frames)`;
+  const part = a.part ? `${a.part}: ` : "";
+  return `${part}Animation ${a.id}${n} (${a.frames - 1} frames)`;
+}
+
+// boss animation keys are 100 * piece + index
+const piece = (a) => (a.part ? Math.floor(a.k / 100) : 0);
+
+function isIdle(a, list) {
+  return list.some((b) => b.id === IDLE_ID && !b.part) ? a.id === IDLE_ID && !a.part : !!a.first;
 }
 
 function fillAnims(list) {
   current.anims = list;
   selAnim.replaceChildren();
-  // idle first, then by game id
-  const sorted = [...list].sort((a, b) => (b.id === IDLE_ID) - (a.id === IDLE_ID) || a.id - b.id || a.k - b.k);
+  // idle first, then by piece (in file order) and game id
+  const sorted = [...list].sort(
+    (a, b) => isIdle(b, list) - isIdle(a, list) || piece(a) - piece(b) || a.id - b.id || a.k - b.k,
+  );
   for (const a of sorted) {
     const op = document.createElement("option");
     op.value = a.k;
@@ -629,7 +641,7 @@ function fillAnims(list) {
     return;
   }
   selAnim.disabled = false;
-  const idle = list.find((a) => a.id === IDLE_ID) ?? list[0];
+  const idle = list.find((a) => isIdle(a, list)) ?? list[0];
   selAnim.value = idle.k;
   // keep the visitor's animation when changing costume (all costumes share the list)
   const wanted = list.find((a) => String(a.k) === recall("anim"));
@@ -643,7 +655,7 @@ async function setAnim(a) {
   const mine = ++animRequest;
   const owner = current;
   remember("anim", a.k);
-  let clip = a.id === IDLE_ID && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
+  let clip = isIdle(a, owner.anims) && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
   if (!clip) {
     status.textContent = `Loading ${animLabel(a, owner.anims)}…`;
     const url = `${BASE}models/${a.file}`;
