@@ -414,6 +414,10 @@ async function setMonster(file) {
   }
   remember("monster", file);
 
+  // paused: the next costume opens on the same frame of the same animation
+  const shown = current?.anims?.find((x) => String(x.k) === selAnim.value);
+  keepFrame = !playing && current?.action && shown ? { key: animKey(shown, current), frame: currentFrame() } : null;
+
   // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
   if (current) current.root.visible = current.bones.visible = current.effects.visible = false;
   player.hidden = true;
@@ -465,8 +469,10 @@ async function setMonster(file) {
   const clip = gltf.animations.find((a) => a.name === "idle") ?? gltf.animations[0];
   const action = clip ? mixer.clipAction(clip).play() : null;
   const effects = new Effects(root);
+  // another costume of the same monster keeps the visitor's camera; a new monster gets the game's framing
+  const sameMonster = !!mon && !!current && monsterOf(current.file) === mon;
   if (clip) {
-    frame(root, mixer, clip, mon?.zoom ?? 1, effects);
+    if (!sameMonster) frame(root, mixer, clip, mon?.zoom ?? 1, effects);
     clip.uvTracks = animExtras(gltf, 0)?.uv;
   }
 
@@ -717,10 +723,14 @@ function fillAnims(list) {
   // keep the visitor's animation when changing costume; another monster starts on its idle
   const saved = recall("anim");
   const wanted = list.find((a) => animKey(a, current) === saved);
-  if (wanted && wanted !== idle) {
-    selAnim.value = wanted.k;
-    setAnim(wanted);
-  }
+  const target = wanted ?? idle;
+  const keep = keepFrame;
+  keepFrame = null;
+  const frame = keep && animKey(target, current) === keep.key ? keep.frame : 0;
+  if (target !== idle) {
+    selAnim.value = target.k;
+    setAnim(target, frame);
+  } else if (frame) seek(Math.min(frame, current.frames));
 }
 
 // remembered as monster + animation name: the same index means a different animation on another monster
@@ -728,7 +738,7 @@ function animKey(a, owner) {
   return `${monsterOf(owner.file)?.prefix ?? owner.file}|${animLabel(a, owner.anims)}`;
 }
 
-async function setAnim(a) {
+async function setAnim(a, frame = 0) {
   const mine = ++animRequest;
   const owner = current;
   remember("anim", animKey(a, owner));
@@ -756,7 +766,7 @@ async function setAnim(a) {
   }
   owner.action = action;
   owner.frames = Math.round(clip.duration * FPS);
-  setupPlayer();
+  setupPlayer(frame);
 }
 
 selAnim.addEventListener("change", () => {
@@ -780,8 +790,25 @@ const frameLabel = document.getElementById("frame-label");
 const prevAnim = document.getElementById("prev-anim");
 const nextAnim = document.getElementById("next-anim");
 const animName = document.getElementById("anim-name");
+const playerToggle = document.getElementById("player-toggle");
+
+// the tab on the player's top edge slides it down out of the way, leaving only the tab (remembered for the next visit)
+function setPlayerShown(shown) {
+  player.classList.toggle("collapsed", !shown);
+  playerToggle.setAttribute("aria-expanded", String(shown));
+  playerToggle.setAttribute("aria-label", shown ? "Hide player" : "Show player");
+  playerToggle.title = shown ? "Hide player" : "Show player";
+  for (const row of player.querySelectorAll(".anim-row, .frame-row")) row.inert = !shown;
+}
+playerToggle.addEventListener("click", () => {
+  const shown = player.classList.contains("collapsed");
+  setPlayerShown(shown);
+  remember("player", shown ? "shown" : "hidden");
+});
+if (recall("player") === "hidden") setPlayerShown(false);
 let playing = true;
 let shownFrame = -1;
+let keepFrame = null; // { key, frame }: the paused frame to reopen after a costume change
 
 function currentFrame() {
   return Math.min(Math.round(current.action.time * FPS), current.frames);
@@ -812,12 +839,13 @@ function seek(f) {
   showFrame();
 }
 
-function setupPlayer() {
+// frame: where to open the animation (kept when changing costume while paused); past its end, the last frame
+function setupPlayer(frame = 0) {
   shownFrame = -1;
   syncAnimNav();
   if (!current.action || current.frames < 1) return;
   frameSlider.max = current.frames;
-  seek(0);
+  seek(Math.min(frame, current.frames));
   player.hidden = false;
 }
 
@@ -832,15 +860,34 @@ function syncAnimNav() {
   prevAnim.disabled = nextAnim.disabled = selAnim.disabled || selAnim.options.length < 2;
 }
 
-// previous / next animation in the list (wrapping around), as if picked in the select
-function stepAnim(delta) {
-  const n = selAnim.options.length;
-  if (selAnim.disabled || n < 2) return;
-  selAnim.selectedIndex = (selAnim.selectedIndex + delta + n) % n;
-  selAnim.dispatchEvent(new Event("change"));
+// previous / next option of a select (wrapping around, skipping hidden options), as if picked by the visitor
+function stepSelect(sel, delta) {
+  const options = [...sel.options].filter((o) => !o.hidden && !o.disabled);
+  const n = options.length;
+  if (sel.disabled || n < 2) return;
+  const i = options.indexOf(sel.selectedOptions[0]);
+  // from a hidden option (the "Custom" lighting) going forward starts at the first one
+  const next = i < 0 ? (delta > 0 ? 0 : n - 1) : (i + delta + n) % n;
+  sel.value = options[next].value;
+  sel.dispatchEvent(new Event("change"));
 }
+const stepAnim = (delta) => stepSelect(selAnim, delta);
 prevAnim.addEventListener("click", () => stepAnim(-1));
 nextAnim.addEventListener("click", () => stepAnim(1));
+
+// previous / next background tile (wrapping around), as if clicked
+function stepStage(delta) {
+  const radios = [...stageGrid.querySelectorAll('input[name="stage"]')];
+  const i = radios.findIndex((r) => r.checked);
+  const radio = radios[(i + delta + radios.length) % radios.length];
+  radio.checked = true;
+  radio.dispatchEvent(new Event("change", { bubbles: true }));
+  // scroll only the grid (not the panel or the page) so the picked tile is visible
+  const g = stageGrid.getBoundingClientRect();
+  const t = radio.closest(".thumb").getBoundingClientRect();
+  if (t.top < g.top) stageGrid.scrollTop -= g.top - t.top + 2;
+  else if (t.bottom > g.bottom) stageGrid.scrollTop += t.bottom - g.bottom + 2;
+}
 
 playButton.addEventListener("click", () => setPlaying(!playing));
 prevFrame.addEventListener("click", () => step(-1));
@@ -851,9 +898,33 @@ frameSlider.addEventListener("input", () => {
   seek(Number(frameSlider.value));
 });
 
-// keyboard: space = play/pause, arrows = one frame (when no form control has focus, so they keep their own keys)
+// keyboard: letters cycle the lists and 1 2 3 toggle the layers (the page has no text field, so they work even with a
+// select focused), space = play/pause and arrows = one frame (only when no form control has focus, so those keep their
+// own keys)
+const SHORTCUTS = {
+  a: () => stepAnim(-1),
+  d: () => stepAnim(1),
+  w: () => stepSelect(selCostume, -1),
+  s: () => stepSelect(selCostume, 1),
+  q: () => stepSelect(selMonster, -1),
+  e: () => stepSelect(selMonster, 1),
+  z: () => stepStage(-1),
+  x: () => stepStage(1),
+  r: () => stepSelect(selLight, 1),
+  1: () => showMesh.click(),
+  2: () => showWire.click(),
+  3: () => showBones.click(),
+};
 window.addEventListener("keydown", (e) => {
-  if (player.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  // the digits by physical key too, for layouts where they need shift (AZERTY)
+  const shortcut = SHORTCUTS[e.key.toLowerCase()] ?? SHORTCUTS[e.code.match(/^Digit([123])$/)?.[1]];
+  if (shortcut) {
+    shortcut();
+    e.preventDefault();
+    return;
+  }
+  if (player.hidden) return;
   if (e.target.closest?.("input, select, textarea, button, summary, a")) return;
   if (e.key === " ") setPlaying(!playing);
   else if (e.key === "ArrowLeft") step(-1);
