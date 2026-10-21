@@ -112,7 +112,8 @@ for (const m of MONSTERS) {
   for (const c of m.costumes) {
     const op = document.createElement("option");
     op.value = `${m.prefix}${c}`;
-    op.textContent = m.costumes.length > 1 ? `${m.name} (costume ${c + 1})` : m.name;
+    const tag = m.labels?.[m.costumes.indexOf(c)] ?? `costume ${c + 1}`;
+    op.textContent = m.costumes.length > 1 ? `${m.name} (${tag})` : m.name;
     selMonster.append(op);
   }
 }
@@ -439,6 +440,12 @@ async function setMonster(file) {
     dispose(current.root);
     disposeBones(current.bones);
   }
+  // The skeleton is the "boneN" joints. The exporter also makes copies ("boneN@obj", under an "off_obj" node) for meshes the
+  // game moves or hides after skinning (Agamo, Zorgulon), plus helper joints ("static_", "off_"): skinning uses them,
+  // the bones overlay and the counter don't.
+  root.traverse((o) => {
+    if (o.isBone && !/^bone[^@]*$/.test(o.name)) o.isBone = false;
+  });
   const bones = makeBones(root);
   scene.add(root, bones);
   current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip };
@@ -449,7 +456,7 @@ async function setMonster(file) {
   stats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
   download.href = url;
   download.download = `${label.replace(/[^\w-]+/g, "_")}_${file}.glb`;
-  downloadLabel.textContent = bytes ? `Download .glb (${kb(bytes)})` : "Download .glb";
+  downloadLabel.textContent = bytes ? `Download model (.glb) ${kb(bytes)}` : "Download model (.glb)";
   download.hidden = false;
   snapshot.hidden = snapshotAlpha.hidden = false;
 }

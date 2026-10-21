@@ -39,7 +39,21 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
     for each costume (about 2.5 min each; they can run in parallel); then one line in `src/catalog.js`.
   - `python tools/shellpics.py disc/SHELL ../wotm-model-museum/public` (11 stage pictures in `stages/` and 10 logos in
     `logos/`, from `SHELL.TEX/.RTX`).
-- **Next:** the other 10 monsters, same command; animation names when the decomp names them.
+- **All 11 monsters (2026-10-21):** 42 costumes, every animation; 112 MB in `public/models` (3,707 files, all pass the glTF
+  validator). Costumes only share animation files when they are byte-identical: rigid parts often differ per costume (Preytor's
+  four costumes each have their own parts), so a costume's differing files go to `<PREFIX>_<costume>/` and the list inside its
+  `.glb` points at them. Done by `merge.py` (kept outside the repos, in `wotm-export-tmp/`): export each costume with
+  `--anim-dir <tmp>/c<costume>/<PREFIX>`, then merge.
+- **Skinned meshes moved or hidden after skinning:** Agamo has skinned pieces with an object matrix (the game does
+  skin(v) * M) and Zorgulon's costume 4 has skinned pieces that only show in 41 of 141 animations. glTF ignores a skinned
+  mesh's node transform, so the exporter puts M on an `off_<obj>` node (scale 0 when hidden) with a copy of the skeleton under
+  it (`boneN@obj`, same keys). The page leaves the copies out of the bones overlay and the count.
+- **Checked:** `wotm-export-tmp/check.py` evaluates a `.glb` as glTF specifies and compares every mesh with `pose.py`; one
+  animation per costume group, max distance 0.026 units (the key-reduction tolerance).
+- **Goliath Prime costume 0** (`ASSBOSS0.NGP`, March 2002, gray, 59 animations) looks like an early version left on the disc;
+  the select calls it "early version".
+- **Next:** step 5 (GS blending and scrolling textures: Kineticlops, its negative costume), step 6 (Agamo's and Magmo
+  costume 4's fire, lens flare); animation names when the decomp names them.
 
 ## Keeping this repo apart from the decomp
 - **This repo is separate from `WoTM` on purpose.** The extracted models belong to Sony; sites like this (Models-Resource) live
