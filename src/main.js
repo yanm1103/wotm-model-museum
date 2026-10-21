@@ -714,18 +714,24 @@ function fillAnims(list) {
   selAnim.disabled = false;
   const idle = list.find((a) => isIdle(a, list)) ?? list[0];
   selAnim.value = idle.k;
-  // keep the visitor's animation when changing costume (all costumes share the list)
-  const wanted = list.find((a) => String(a.k) === recall("anim"));
+  // keep the visitor's animation when changing costume; another monster starts on its idle
+  const saved = recall("anim");
+  const wanted = list.find((a) => animKey(a, current) === saved);
   if (wanted && wanted !== idle) {
     selAnim.value = wanted.k;
     setAnim(wanted);
   }
 }
 
+// remembered as monster + animation name: the same index means a different animation on another monster
+function animKey(a, owner) {
+  return `${monsterOf(owner.file)?.prefix ?? owner.file}|${animLabel(a, owner.anims)}`;
+}
+
 async function setAnim(a) {
   const mine = ++animRequest;
   const owner = current;
-  remember("anim", a.k);
+  remember("anim", animKey(a, owner));
   let clip = isIdle(a, owner.anims) && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
   if (!clip) {
     status.textContent = `Loading ${animLabel(a, owner.anims)}…`;
