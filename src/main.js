@@ -214,7 +214,10 @@ function kb(bytes) {
 }
 
 // ---- monster
-function makeMaterial(original) {
+// Every solid sits a little behind (polygonOffset) so the wireframe lines win over it. The skinned body sits further back
+// than the rigid parts: a part laid exactly on the body (the red eye of Goliath Prime's early version) wins the tie, as it
+// does in the game, instead of fighting with the body (skinned on the GPU vs rigid: the two depths round differently).
+function makeMaterial(original, skinned) {
   // Lambert = ambient + directional per fragment, over texture * vertex color (the glTF carries non-metallic PBR)
   const m = new THREE.MeshLambertMaterial({
     map: original.map,
@@ -225,8 +228,8 @@ function makeMaterial(original) {
     depthWrite: original.depthWrite,
     opacity: original.opacity,
     polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
+    polygonOffsetFactor: skinned ? 2 : 1,
+    polygonOffsetUnits: skinned ? 2 : 1,
     flatShading: true, // hard shading: one normal per triangle (the game's own normals are smoothed)
   });
   if (m.map) m.map.colorSpace = THREE.NoColorSpace;
@@ -452,7 +455,7 @@ async function setMonster(file) {
   const root = gltf.scene;
   root.traverse((o) => {
     if (o.isMesh) {
-      o.material = makeMaterial(o.material);
+      o.material = makeMaterial(o.material, o.isSkinnedMesh);
       o.frustumCulled = false; // the skinned mesh's bounding box is the rest pose's
     }
   });
@@ -489,6 +492,7 @@ async function setMonster(file) {
   applyLayers();
   setupPlayer();
   fillAnims(root.userData.animations ?? []);
+  syncAnimNav();
   const n = (x) => `<strong>${x.toLocaleString("en-US")}</strong>`;
   stats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
   download.href = url;
@@ -630,6 +634,12 @@ drawerToggle.addEventListener("click", () => {
   setDrawer(open);
   remember("drawer", open ? "open" : "closed");
 });
+// on touch screens the open panel covers most of the view: a tap anywhere outside it closes it
+document.addEventListener("pointerdown", (e) => {
+  if (e.pointerType !== "touch" || drawer.classList.contains("closed") || drawer.contains(e.target)) return;
+  setDrawer(false);
+  remember("drawer", "closed");
+});
 
 // ---- lighting controls
 const sliders = {
@@ -761,6 +771,9 @@ const prevFrame = document.getElementById("prev-frame");
 const nextFrame = document.getElementById("next-frame");
 const frameSlider = document.getElementById("frame");
 const frameLabel = document.getElementById("frame-label");
+const prevAnim = document.getElementById("prev-anim");
+const nextAnim = document.getElementById("next-anim");
+const animName = document.getElementById("anim-name");
 let playing = true;
 let shownFrame = -1;
 
@@ -795,6 +808,7 @@ function seek(f) {
 
 function setupPlayer() {
   shownFrame = -1;
+  syncAnimNav();
   if (!current.action || current.frames < 1) return;
   frameSlider.max = current.frames;
   seek(0);
@@ -805,6 +819,22 @@ function step(delta) {
   setPlaying(false);
   seek(currentFrame() + delta);
 }
+
+// the animation's name between the previous / next buttons (they're off when there is nothing to switch to)
+function syncAnimNav() {
+  animName.textContent = selAnim.selectedOptions[0]?.textContent ?? "";
+  prevAnim.disabled = nextAnim.disabled = selAnim.disabled || selAnim.options.length < 2;
+}
+
+// previous / next animation in the list (wrapping around), as if picked in the select
+function stepAnim(delta) {
+  const n = selAnim.options.length;
+  if (selAnim.disabled || n < 2) return;
+  selAnim.selectedIndex = (selAnim.selectedIndex + delta + n) % n;
+  selAnim.dispatchEvent(new Event("change"));
+}
+prevAnim.addEventListener("click", () => stepAnim(-1));
+nextAnim.addEventListener("click", () => stepAnim(1));
 
 playButton.addEventListener("click", () => setPlaying(!playing));
 prevFrame.addEventListener("click", () => step(-1));

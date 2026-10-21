@@ -456,9 +456,9 @@ footer {
   transform: translateX(-50%);
   width: min(560px, calc(100vw - 32px));
   display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px 6px 6px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 12px 6px 6px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -505,6 +505,41 @@ footer {
 
 #player.paused .icon-play {
   display: block;
+}
+
+#player .frame-row,
+#player .anim-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* previous / next animation, with the animation's name between them */
+#player .anim-row {
+  justify-content: center;
+  padding-left: 6px;
+}
+
+#anim-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.icon-button.small {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: transparent;
 }
 
 #player input[type="range"] {

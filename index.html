@@ -112,26 +112,41 @@
 
     <!-- animation player: pause, step one frame, scrub to any frame -->
     <div id="player" hidden>
-      <button id="prev-frame" class="icon-button" type="button" aria-label="Previous frame" title="Previous frame (←)">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path d="M7 5v14M18 6l-8 6 8 6z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-        </svg>
-      </button>
-      <button id="play" class="icon-button play" type="button" aria-label="Pause" title="Pause (space)">
-        <svg class="icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" />
-        </svg>
-        <svg class="icon-play" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
-        </svg>
-      </button>
-      <button id="next-frame" class="icon-button" type="button" aria-label="Next frame" title="Next frame (→)">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path d="M17 5v14M6 6l8 6-8 6z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
-        </svg>
-      </button>
-      <input type="range" id="frame" min="0" max="0" step="1" value="0" aria-label="Frame" />
-      <output id="frame-label" for="frame"></output>
+      <div class="anim-row">
+        <button id="prev-anim" class="icon-button small" type="button" aria-label="Previous animation" title="Previous animation">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <span id="anim-name"></span>
+        <button id="next-anim" class="icon-button small" type="button" aria-label="Next animation" title="Next animation">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
+      <div class="frame-row">
+        <button id="prev-frame" class="icon-button" type="button" aria-label="Previous frame" title="Previous frame (←)">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M7 5v14M18 6l-8 6 8 6z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <button id="play" class="icon-button play" type="button" aria-label="Pause" title="Pause (space)">
+          <svg class="icon-pause" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" fill="currentColor" />
+          </svg>
+          <svg class="icon-play" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
+          </svg>
+        </button>
+        <button id="next-frame" class="icon-button" type="button" aria-label="Next frame" title="Next frame (→)">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M17 5v14M6 6l8 6-8 6z" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+          </svg>
+        </button>
+        <input type="range" id="frame" min="0" max="0" step="1" value="0" aria-label="Frame" />
+        <output id="frame-label" for="frame"></output>
+      </div>
     </div>
 
     <footer>Fan project by TwistZero. War of the Monsters © Sony Interactive Entertainment; not affiliated with Sony.</footer>
