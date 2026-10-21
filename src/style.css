@@ -391,6 +391,13 @@ label.check input {
   outline-offset: 1px;
 }
 
+/* recording: the button turns into the way to stop */
+#record.recording {
+  color: #16131b;
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 /* too big for this device's graphics card */
 #image-size input:disabled + span {
   opacity: 0.35;

@@ -423,7 +423,8 @@ async function setMonster(file) {
   player.hidden = true;
   selAnim.disabled = true;
   download.hidden = true;
-  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = true;
+  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = recordButton.hidden = true;
+  stopRecording(false);
   stats.textContent = "";
   loadingText.textContent = `Loading ${label}…`;
   const spinnerTimer = setTimeout(() => (loadingBox.hidden = false), 150);
@@ -506,6 +507,7 @@ async function setMonster(file) {
   downloadLabel.textContent = bytes ? `Download model (.glb) ${kb(bytes)}` : "Download model (.glb)";
   download.hidden = false;
   snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = false;
+  recordButton.hidden = !canRecord;
 }
 
 // ---- save the picture the visitor composed: background (stage picture or color) + the 3D view, at screen resolution
@@ -639,6 +641,69 @@ for (const [button, transparent] of [
   });
 }
 
+// ---- video: the canvas is recorded live while the animation plays once from its first frame, at the chosen speed (the
+// visitor can still turn the camera while it records). MP4 where the browser can make it (what most sites accept),
+// WebM otherwise.
+const recordButton = document.getElementById("record");
+const recordLabel = document.getElementById("record-label");
+const VIDEO_TYPE = ["video/mp4;codecs=avc1.640028", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find(
+  (t) => window.MediaRecorder?.isTypeSupported(t),
+);
+const canRecord = !!VIDEO_TYPE && !!canvas.captureStream;
+const MAX_VIDEO_SECONDS = 120;
+let recording = null; // { recorder, chunks, name, start, last, keep }
+
+function startRecording() {
+  if (!current?.action || recording) return;
+  const who = slug(monsterOf(selCostume.value)?.name ?? "monster");
+  const what = slug(selAnim.selectedOptions[0]?.textContent.replace(/\(.*\)/, "") ?? "animation");
+  const recorder = new MediaRecorder(canvas.captureStream(60), { mimeType: VIDEO_TYPE, videoBitsPerSecond: 12e6 });
+  const rec = { recorder, chunks: [], name: `${who}_${what}`, start: performance.now(), last: 0, keep: true };
+  recording = rec;
+  // the last piece arrives after stop(), when `recording` is already cleared: collect into this recording's own list
+  recorder.ondataavailable = (e) => e.data.size && rec.chunks.push(e.data);
+  recorder.onstop = () => {
+    if (!rec.keep || !rec.chunks.length) return;
+    const blob = new Blob(rec.chunks, { type: VIDEO_TYPE.split(";")[0] });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${rec.name}.${VIDEO_TYPE.startsWith("video/mp4") ? "mp4" : "webm"}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  };
+  seek(0);
+  setPlaying(true);
+  recorder.start();
+  recordButton.classList.add("recording");
+  recordLabel.textContent = "Stop recording";
+}
+
+// keep: save what was recorded (false when the model goes away mid-recording)
+function stopRecording(keep = true) {
+  if (!recording) return;
+  recording.keep = keep;
+  if (recording.recorder.state !== "inactive") recording.recorder.stop();
+  recording = null;
+  recordButton.classList.remove("recording");
+  recordLabel.textContent = "Save animation as video";
+  if (status.textContent.startsWith("Recording")) status.textContent = "";
+}
+
+// called every frame: stop once the animation wrapped around to its start (one full play), or at the time limit
+function checkRecording() {
+  if (!recording) return;
+  const t = current?.action?.time ?? 0;
+  const seconds = (performance.now() - recording.start) / 1000;
+  status.textContent = `Recording… ${seconds.toFixed(1)} s`;
+  if ((t < recording.last && seconds > 0.1) || seconds > MAX_VIDEO_SECONDS) {
+    stopRecording(true);
+    return;
+  }
+  recording.last = t;
+}
+
+recordButton.addEventListener("click", () => (recording ? stopRecording(true) : startRecording()));
+
 // a new monster keeps the costume position when it has one (third costume of Congar -> third of Togera)
 selMonster.addEventListener("change", () => {
   const m = MONSTERS[Number(selMonster.value)];
@@ -770,6 +835,7 @@ function animKey(a, owner) {
 }
 
 async function setAnim(a, frame = 0) {
+  stopRecording(false); // another animation: the half-made video is dropped
   const mine = ++animRequest;
   const owner = current;
   remember("anim", animKey(a, owner));
@@ -1068,6 +1134,7 @@ renderer.setAnimationLoop(() => {
     current.mixer.update(dt * speed);
     showFrame();
   }
+  checkRecording();
   lastTime = now;
   controls.update(dt); // the time step keeps the showcase's turn at the same speed on any refresh rate
   if (current) {
