@@ -112,15 +112,36 @@ function recall(key) {
   }
 }
 
-// ---- selects
-for (const m of MONSTERS) {
-  for (const c of m.costumes) {
+// ---- selects: monster, then its costume (hidden when the monster has only one)
+const selCostume = document.getElementById("costume");
+const costumeRow = document.getElementById("costume-row");
+const filesOf = (m) => m.costumes.map((c) => `${m.prefix}${c}`);
+
+MONSTERS.forEach((m, i) => {
+  const op = document.createElement("option");
+  op.value = i;
+  op.textContent = m.name;
+  selMonster.append(op);
+});
+
+// fills the costume select for the picked monster and selects `file` (or the first costume)
+function fillCostumes(m, file) {
+  selCostume.replaceChildren();
+  m.costumes.forEach((c, i) => {
     const op = document.createElement("option");
     op.value = `${m.prefix}${c}`;
-    const tag = m.labels?.[m.costumes.indexOf(c)] ?? `costume ${c + 1}`;
-    op.textContent = m.costumes.length > 1 ? `${m.name} (${tag})` : m.name;
-    selMonster.append(op);
-  }
+    op.textContent = m.labels?.[i] ?? `Costume ${c + 1}`;
+    selCostume.append(op);
+  });
+  costumeRow.hidden = m.costumes.length < 2;
+  selCostume.value = filesOf(m).includes(file) ? file : filesOf(m)[0];
+}
+
+function pickMonster(file) {
+  const m = monsterOf(file) ?? MONSTERS[0];
+  selMonster.value = MONSTERS.indexOf(m);
+  fillCostumes(m, file);
+  setMonster(selCostume.value);
 }
 // Background picker: one radio per stage, drawn as a thumbnail (small picture from stages/thumbs/, name below), plus a
 // "Custom" tile for a plain color of the visitor's choice
@@ -164,7 +185,7 @@ for (const s of [...STAGES, { file: CUSTOM, name: "Custom" }]) {
 }
 
 function monsterOf(file) {
-  return MONSTERS.find((m) => file.startsWith(m.prefix));
+  return MONSTERS.find((m) => filesOf(m).includes(file));
 }
 
 // ---- background
@@ -485,6 +506,41 @@ function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
+// Transparent picture. The additive parts (Kineticlops' body, fire, flares) add light without writing alpha, so the canvas
+// alpha alone would drop them. Instead the scene is drawn over black and over white: a pixel that lets a fraction
+// (1 - a) of the background through differs by (1 - a) between the two, and additive light (which saturates over white)
+// keeps its brightness as alpha. Color = the black render divided by alpha.
+const BLACK = new THREE.Color(0, 0, 0);
+const WHITE = new THREE.Color(1, 1, 1);
+
+function grab(w, h, solid) {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  draw(solid);
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(canvas, 0, 0);
+  return g.getImageData(0, 0, w, h);
+}
+
+function matte(w, h) {
+  const b = grab(w, h, BLACK);
+  const wt = grab(w, h, WHITE).data;
+  const px = b.data;
+  for (let i = 0; i < px.length; i += 4) {
+    let a = 0;
+    for (let c = 0; c < 3; c++) a = Math.max(a, 255 - wt[i + c] + px[i + c]);
+    a = Math.min(255, a);
+    for (let c = 0; c < 3; c++) px[i + c] = a ? Math.min(255, Math.round((px[i + c] * 255) / a)) : 0;
+    px[i + 3] = a;
+  }
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  out.getContext("2d").putImageData(b, 0, 0);
+  return out;
+}
+
 // Transparent picture: drop the fully transparent margins (crop to the box of every pixel with alpha > 0)
 function cropToContent(src) {
   const { width: w, height: h } = src;
@@ -518,16 +574,21 @@ async function saveImage(transparent) {
   out.width = w;
   out.height = h;
   const ctx = out.getContext("2d");
+  const who = slug(monsterOf(selCostume.value)?.name ?? "monster"); // named when clicked, not when the file is ready
   let bgName = "custom";
   if (transparent) bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
   else if (stage !== CUSTOM) bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
   // the WebGL canvas is only readable right after a render, in the same task: render, then copy at once
-  draw(transparent);
-  ctx.drawImage(canvas, 0, 0);
+  if (transparent) {
+    ctx.drawImage(matte(w, h), 0, 0);
+  } else {
+    draw();
+    ctx.drawImage(canvas, 0, 0);
+  }
   const blob = await new Promise((r) => (transparent ? cropToContent(out) : out).toBlob(r, "image/png"));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${slug(monsterOf(selMonster.value)?.name ?? "monster")}_${slug(bgName)}.png`;
+  a.download = `${who}_${slug(bgName)}.png`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
@@ -544,7 +605,14 @@ for (const [button, transparent] of [
   });
 }
 
-selMonster.addEventListener("change", () => setMonster(selMonster.value));
+// a new monster keeps the costume position when it has one (third costume of Congar -> third of Togera)
+selMonster.addEventListener("change", () => {
+  const m = MONSTERS[Number(selMonster.value)];
+  const old = monsterOf(selCostume.value);
+  const i = old ? filesOf(old).indexOf(selCostume.value) : 0;
+  pickMonster(filesOf(m)[i] ?? filesOf(m)[0]);
+});
+selCostume.addEventListener("change", () => setMonster(selCostume.value));
 stageGrid.addEventListener("change", (e) => setStage(e.target.value));
 for (const box of [showMesh, showWire, showBones]) {
   box.addEventListener("change", () => {
@@ -784,10 +852,10 @@ function resize() {
 }
 
 // background, then the 3D scene, then the lens flares on top
-function draw(transparent = false) {
+function draw(solid = null) {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
-  background.draw(renderer, canvas.width, canvas.height, transparent);
+  background.draw(renderer, canvas.width, canvas.height, solid);
   if (current) {
     current.root.updateMatrixWorld();
     current.effects.updateFlares(camera, w, h);
@@ -819,10 +887,6 @@ renderer.setAnimationLoop(() => {
 });
 
 // ---- start
-function restoreSelect(sel, key) {
-  const v = recall(key);
-  if ([...sel.options].some((o) => o.value === v)) sel.value = v;
-}
 // layers: { mesh, wire, bones }; older visits stored one "mesh" mode (solid / wire / both)
 let savedLayers = null;
 try {
@@ -856,5 +920,4 @@ let savedStage = recall("stage");
 if (savedStage === "") savedStage = CUSTOM; // earlier "None" option
 setStage(savedStage === CUSTOM || STAGES.some((s) => s.file === savedStage) ? savedStage : STAGES[0].file);
 
-restoreSelect(selMonster, "monster");
-setMonster(selMonster.value);
+pickMonster(recall("monster") ?? "");

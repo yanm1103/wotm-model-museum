@@ -1,7 +1,8 @@
 // What the site shows. Each exported costume is public/models/<PREFIX><costume>.glb (mesh, skeleton, idle and the list of
 // animations); the animations are public/models/<PREFIX>/aNNN.glb, one per file, shared by the monster's costumes
 // (WoTM/tools/monglb.py --all --split --anim-dir <PREFIX>). Game order (character select).
-// labels: costume names in the select (default "costume N").
+// labels: costume names in the costume select (default "costume N"; hidden when there is only one). A prefix may be split
+// across entries (the plant boss and its root are PLANT0 and PLANT1).
 // zoom: camera dolly per monster (Togera's tail and Raptros' wings make the box wide), as in the game port's save list.
 export const MONSTERS = [
   { prefix: "MONKEY", name: "Congar", costumes: [0, 1, 2, 3] },
@@ -18,9 +19,10 @@ export const MONSTERS = [
   { prefix: "ASSBOSS", name: "Goliath Prime", costumes: [0, 1], labels: ["early version", "final"] },
   // Bosses. The plant is put together from pieces of the 3-MILE level (base and three heads where the game places them;
   // one root on its own) and the Mecha from CAPITOL (monglb.py --boss); the jelly and the last form are MON/JELLY0 and
-  // MON/FINAL0. Their animations are listed per piece ("Head", "Base").
-  { prefix: "PLANT", name: "Plant boss", costumes: [0, 1], labels: ["full", "root"] },
-  { prefix: "FINALBOSS", name: "Final boss", costumes: [0, 1, 2], labels: ["stage 1: Mecha", "stage 2: Jelly", "stage 3"] },
+  // MON/FINAL0 (Cerebulon). The plant's animations are listed per piece ("Head", "Base").
+  { prefix: "PLANT", name: "Plant boss", costumes: [0] },
+  { prefix: "PLANT", name: "Plant boss root", costumes: [1] },
+  { prefix: "FINALBOSS", name: "Cerebulon", costumes: [0, 1, 2], labels: ["stage 1: Mecha", "stage 2: Jelly", "stage 3"] },
 ];
 
 // Stage pictures from the game menu (WoTM/tools/shellpics.py), in game order

@@ -65,9 +65,12 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
     parameters in `extras.fx`. The fire is simulated per game field (pauses with the player); flares are 18 screen sprites.
     Textures in `public/fx/` (from `LVL/CENTRAL.TEX/.RTX`, `wotm-export-tmp/fxtex.py`).
   - Re-export: 140 MB, 4,724 files, all pass the validator. Costumes share fewer animation files now (effect nodes differ).
-  - The transparent "Save image" crops to the content (drops fully transparent margins). Additive glows (fire, flares)
-    don't carry alpha, so they stay out of the transparent picture.
-- **Bosses (2026-10-21):** "Plant boss" and "Final boss" in the monster select.
+  - The transparent "Save image" draws the scene over black and over white and rebuilds the alpha from the difference
+    (additive parts like Kineticlops' body, fire and flares write no alpha, so the canvas alpha alone dropped them), then
+    crops to the content (drops fully transparent margins).
+- **Bosses (2026-10-21):** "Plant boss", "Plant boss root" and "Cerebulon" (the final boss: costumes "stage 1: Mecha",
+  "stage 2: Jelly", "stage 3") in the monster select. Monster and costume are separate selects; the costume one is hidden
+  when the monster has a single costume.
   - Plant (`PLANT0`): pieces of the 3-MILE level, put together where `PlantBoss.cpp` places them: base (0x2728) at the
     origin and the three heads (0x271B..0x271D) at their `wakeUp` offsets, with each head's switch 999 turned on (the parts
     the fight shows). Animations are per piece ("Head: Animation n" plays on the three heads, "Base: ..."), the other piece

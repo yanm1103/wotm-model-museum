@@ -569,11 +569,11 @@ export class Background {
     this.color.set(hex);
   }
 
-  // clears and draws the background; transparent = clear to alpha 0 and draw nothing
-  draw(renderer, w, h, transparent) {
-    renderer.setClearColor(this.color, transparent ? 0 : 1);
+  // clears and draws the background; solid = a plain THREE.Color instead of the picture or the visitor's color
+  draw(renderer, w, h, solid = null) {
+    renderer.setClearColor(solid ?? this.color, 1);
     renderer.clear();
-    if (transparent || !this.texture) return;
+    if (solid || !this.texture) return;
     const img = this.texture.image;
     const k = Math.max(w / img.width, h / img.height);
     this.material.uniforms.scale.value.set(w / (img.width * k), h / (img.height * k));
