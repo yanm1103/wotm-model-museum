@@ -1,0 +1,109 @@
+:root {
+  --painel: rgba(12, 10, 16, 0.78);
+  --borda: rgba(255, 255, 255, 0.14);
+  --texto: #f2ede4;
+  --fraco: #b9b0a2;
+  --destaque: #f0a32a;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #16131b;
+  color: var(--texto);
+  font: 14px/1.4 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+
+/* foto da fase atrás do canvas (o canvas é transparente) */
+#fundo {
+  position: fixed;
+  inset: 0;
+  background: #16131b center / cover no-repeat;
+  transition: background-image 0.25s;
+}
+
+#cena {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+}
+
+#painel {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  width: min(260px, calc(100vw - 32px));
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: var(--painel);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+
+#logo {
+  width: 100%;
+  height: auto;
+  margin: -6px 0 -4px;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--fraco);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+select {
+  font: inherit;
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--texto);
+  background: #221e29;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+select:focus-visible {
+  outline: 2px solid var(--destaque);
+  outline-offset: 1px;
+}
+
+#estado {
+  margin: 0;
+  color: var(--fraco);
+  font-size: 12px;
+}
+
+#estado:empty {
+  display: none;
+}
+
+footer {
+  position: fixed;
+  right: 16px;
+  bottom: 10px;
+  left: 16px;
+  text-align: right;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}

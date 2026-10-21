@@ -1,7 +1,21 @@
 # WotM Model Museum: viewer web dos monstros
 
 Site estático para ver os monstros de War of the Monsters (PS2) no navegador: cada monstro e traje, todas as animações, com
-wireframe e ossos. Só visualização: nenhuma lógica de jogo. Plano anotado em 2026-10-21; nada implementado ainda.
+wireframe e ossos. Só visualização: nenhuma lógica de jogo. Plano anotado em 2026-10-21.
+
+## Estado (2026-10-21)
+- **Feito:** etapa 1 para um monstro (Togera, traje 0, só o idle) e o começo da etapa 3: página com um select de monstro e um
+  de fundo (a foto larga de cada fase, a mesma da lista de saves do nativo), câmera orbital, enquadramento como o da lista de
+  saves (3/4, yaw 35°, pitch 8°, caixa fixa do idle inteiro) e a luz do `Renderer` do nativo (ambiente 0,7 + direcional 0,6).
+- **Conferido:** o `.glb` passa no validador oficial (0 erros, 0 avisos) e, avaliado como o glTF manda, bate com o `pose.py`
+  vértice a vértice nos quadros 0, 37 e 100 (diferença máxima 0,008 unidade, dos pesos residuais da codificação).
+- **Front-end:** Vite + JavaScript puro + three.js (sem framework de UI). `npm install`, `npm run dev` (desenvolvimento),
+  `npm run build` (gera `dist/`, estático, com caminhos relativos para qualquer hospedagem).
+- **Gerar os arquivos** (do `WoTM`, com o disco do usuário em `disc/`):
+  - `python tools/monglb.py disc/MON/LIZARD0.NGP ../wotm-model-museum/public/modelos/LIZARD0.glb` (`--anims 90,0` para mais
+    animações); depois uma linha em `src/catalogo.js`.
+  - `python tools/shellpics.py disc/SHELL ../wotm-model-museum/public/fundos` (11 fotos de fase e 10 logos, do `SHELL.TEX/.RTX`).
+- **Próximo:** os outros monstros e trajes; select de animação com play/pause (etapa 3); wireframe e ossos (etapa 4).
 
 ## Separação do repo da decomp
 - **Este repo é separado do `WoTM` de propósito.** Os modelos extraídos são da Sony; sites assim (Models-Resource) vivem de
@@ -13,7 +27,8 @@ wireframe e ossos. Só visualização: nenhuma lógica de jogo. Plano anotado em
 ## Como fica a divisão
 | Onde | O quê |
 |---|---|
-| `WoTM/tools/gltf.py` + `pose.py` + `animcurve.py` | exportador: lê o disco do usuário (`disc/MON/`) e grava `.glb` com malha, texturas, esqueleto e animações |
+| `WoTM/tools/monglb.py` (sobre `gltf.py` + `pose.py` + `animcurve.py`) | exportador: lê o disco do usuário (`disc/MON/`) e grava `.glb` com malha, texturas, esqueleto e animações |
+| `WoTM/tools/shellpics.py` | fotos das fases e logos dos monstros (`disc/SHELL/`) em PNG, para o fundo |
 | `WoTM/docs/passos/MODELOS_3D.md` | referência do formato (travessia, esqueleto, paleta, texturas, misturas do GS, fogo, lens flare) |
 | este repo | página (three.js) e os `.glb` exportados |
 

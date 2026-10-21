@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WotM Model Museum</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="fundo"></div>
+    <canvas id="cena"></canvas>
+
+    <aside id="painel">
+      <img id="logo" alt="" hidden />
+      <label>
+        Monstro
+        <select id="monstro"></select>
+      </label>
+      <label>
+        Fundo
+        <select id="fase"></select>
+      </label>
+      <p id="estado" role="status"></p>
+    </aside>
+
+    <footer>Projeto de fãs. War of the Monsters © Sony Interactive Entertainment; sem relação com a Sony.</footer>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>
