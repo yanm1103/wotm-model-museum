@@ -112,6 +112,13 @@
             </svg>
             <span>Save as png (no bg)</span>
           </button>
+          <button id="showcase" class="button" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66M20 4v4h-4" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span>Showcase mode</span>
+          </button>
           <p id="stats"></p>
         </div>
         <p id="status" role="status"></p>
@@ -124,6 +131,8 @@
           <dt><kbd>R</kbd></dt><dd>Lighting</dd>
           <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></dt><dd>Mesh / wireframe / bones</dd>
           <dt><kbd>Space</kbd></dt><dd>Play / pause</dd>
+          <dt><kbd>-</kbd> <kbd>+</kbd></dt><dd>Playback speed</dd>
+          <dt><kbd>H</kbd></dt><dd>Showcase mode</dd>
           <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next frame</dd>
         </dl>
         <a id="kofi" href="https://ko-fi.com/J0R5297P75" target="_blank" rel="noopener" title="Support me on ko-fi.com">
@@ -152,6 +161,7 @@
           <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
       </button>
+      <button id="speed" class="text-button" type="button" title="Playback speed (- / +)">1×</button>
       <div class="anim-row">
         <button id="prev-anim" class="icon-button small" type="button" aria-label="Previous animation" title="Previous animation">
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -189,6 +199,13 @@
       </div>
     </div>
 
+
+    <!-- showcase mode: everything else is hidden, so this is the way out on touch screens (fades away when idle) -->
+    <button id="showcase-exit" type="button" aria-label="Exit showcase mode" title="Exit showcase mode (H / Esc)">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+        <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
+      </svg>
+    </button>
 
     <script type="module" src="./src/main.js"></script>
   </body>

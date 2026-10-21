@@ -798,7 +798,7 @@ function setPlayerShown(shown) {
   playerToggle.setAttribute("aria-expanded", String(shown));
   playerToggle.setAttribute("aria-label", shown ? "Hide player" : "Show player");
   playerToggle.title = shown ? "Hide player" : "Show player";
-  for (const row of player.querySelectorAll(".anim-row, .frame-row")) row.inert = !shown;
+  for (const el of player.querySelectorAll(":scope > :not(#player-toggle)")) el.inert = !shown;
 }
 playerToggle.addEventListener("click", () => {
   const shown = player.classList.contains("collapsed");
@@ -806,6 +806,26 @@ playerToggle.addEventListener("click", () => {
   remember("player", shown ? "shown" : "hidden");
 });
 if (recall("player") === "hidden") setPlayerShown(false);
+
+// playback speed: the button cycles through the list (wrapping around), - and + step down / up without wrapping
+const SPEEDS = [0.25, 0.5, 1, 2];
+const speedButton = document.getElementById("speed");
+let speed = 1;
+function setSpeed(s) {
+  speed = s;
+  speedButton.textContent = `${s}×`;
+  speedButton.classList.toggle("changed", s !== 1);
+  speedButton.setAttribute("aria-label", `Playback speed ${s}×`);
+  remember("speed", s);
+}
+function stepSpeed(delta, wrap) {
+  const n = SPEEDS.length;
+  const i = SPEEDS.indexOf(speed) + delta;
+  setSpeed(SPEEDS[wrap ? (i + n) % n : Math.max(0, Math.min(n - 1, i))]);
+}
+speedButton.addEventListener("click", () => stepSpeed(1, true));
+const savedSpeed = Number(recall("speed"));
+setSpeed(SPEEDS.includes(savedSpeed) ? savedSpeed : 1);
 let playing = true;
 let shownFrame = -1;
 let keepFrame = null; // { key, frame }: the paused frame to reopen after a costume change
@@ -898,6 +918,38 @@ frameSlider.addEventListener("input", () => {
   seek(Number(frameSlider.value));
 });
 
+// ---- showcase mode: the interface goes away and the camera slowly circles the monster. The shortcuts keep working
+// (H or Esc leaves); on touch screens a round button in the corner leaves, and fades out when nobody touches anything.
+const showcaseButton = document.getElementById("showcase");
+const showcaseExit = document.getElementById("showcase-exit");
+controls.autoRotateSpeed = 1.5; // 40 seconds per turn
+let idleTimer = 0;
+function wake() {
+  document.body.classList.remove("idle");
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => document.body.classList.add("idle"), 2500);
+}
+function setShowcase(on) {
+  document.body.classList.toggle("showcase", on);
+  controls.autoRotate = on;
+  if (on) wake();
+  else {
+    clearTimeout(idleTimer);
+    document.body.classList.remove("idle");
+  }
+}
+const inShowcase = () => document.body.classList.contains("showcase");
+showcaseButton.addEventListener("click", () => {
+  showcaseButton.blur(); // so space and the arrows reach the player again
+  setShowcase(true);
+});
+showcaseExit.addEventListener("click", () => setShowcase(false));
+for (const type of ["pointermove", "pointerdown"]) {
+  document.addEventListener(type, () => {
+    if (inShowcase()) wake();
+  });
+}
+
 // keyboard: letters cycle the lists and 1 2 3 toggle the layers (the page has no text field, so they work even with a
 // select focused), space = play/pause and arrows = one frame (only when no form control has focus, so those keep their
 // own keys)
@@ -914,9 +966,18 @@ const SHORTCUTS = {
   1: () => showMesh.click(),
   2: () => showWire.click(),
   3: () => showBones.click(),
+  "-": () => stepSpeed(-1, false),
+  "+": () => stepSpeed(1, false),
+  "=": () => stepSpeed(1, false), // + without shift on US keyboards
+  h: () => setShowcase(!inShowcase()),
 };
 window.addEventListener("keydown", (e) => {
   if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.key === "Escape" && inShowcase()) {
+    setShowcase(false);
+    e.preventDefault();
+    return;
+  }
   // the digits by physical key too, for layouts where they need shift (AZERTY)
   const shortcut = SHORTCUTS[e.key.toLowerCase()] ?? SHORTCUTS[e.code.match(/^Digit([123])$/)?.[1]];
   if (shortcut) {
@@ -970,12 +1031,13 @@ function draw(solid = null) {
 renderer.setAnimationLoop(() => {
   resize();
   const now = performance.now();
+  const dt = Math.min((now - lastTime) / 1000, 0.1); // background tab: don't skip the whole animation
   if (playing && current) {
-    current.mixer.update(Math.min((now - lastTime) / 1000, 0.1)); // background tab: don't skip the whole animation
+    current.mixer.update(dt * speed);
     showFrame();
   }
   lastTime = now;
-  controls.update();
+  controls.update(dt); // the time step keeps the showcase's turn at the same speed on any refresh rate
   if (current) {
     const t = current.action?.time ?? 0;
     current.uv.update(t, current.action?.getClip().uvTracks);

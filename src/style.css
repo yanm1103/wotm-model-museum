@@ -693,10 +693,44 @@ kbd {
   gap: 6px;
 }
 
-/* previous / next animation, with the animation's name between them */
+/* previous / next animation, with the animation's name between them (room on both sides for the speed button, so the
+   name stays centered) */
 #player .anim-row {
   justify-content: center;
-  padding-left: 6px;
+  padding: 0 46px 0 52px;
+}
+
+/* playback speed, on the top-left corner of the player: click to cycle */
+.text-button {
+  position: absolute;
+  top: 4px;
+  left: 6px;
+  min-width: 44px;
+  height: 28px;
+  padding: 0 8px;
+  font: 600 12px/1 system-ui, "Segoe UI", Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.text-button:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.text-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* not the normal speed: highlighted, so a slowed-down animation isn't mistaken for the real thing */
+#speed.changed {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 #anim-name {
@@ -740,4 +774,51 @@ kbd {
 #frame-label strong {
   color: var(--text);
   font-weight: 600;
+}
+
+/* ---- showcase mode: no interface, the camera slowly circles the monster */
+#showcase-exit {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  width: 40px;
+  height: 40px;
+  display: none;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 0;
+  border-radius: 50%;
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+  transition: opacity 0.4s ease;
+}
+
+#showcase-exit:hover {
+  color: var(--accent);
+}
+
+#showcase-exit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+body.showcase #showcase-exit {
+  display: grid;
+}
+
+/* idle for a moment: the exit button fades out too, leaving only the monster */
+body.showcase.idle #showcase-exit {
+  opacity: 0;
+}
+
+body.showcase.idle {
+  cursor: none;
+}
+
+body.showcase #drawer,
+body.showcase #player {
+  visibility: hidden;
+  opacity: 0;
 }
