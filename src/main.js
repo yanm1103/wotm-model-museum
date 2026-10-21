@@ -512,6 +512,9 @@ function slug(s) {
 // keeps its brightness as alpha. Color = the black render divided by alpha.
 const BLACK = new THREE.Color(0, 0, 0);
 const WHITE = new THREE.Color(1, 1, 1);
+// Alpha at or below this (of 255) is treated as empty. Some browsers return black and white a step or two off (display
+// color profiles, fingerprinting noise), which made every pixel slightly opaque and the crop keep the whole frame.
+const MATTE_FLOOR = 6;
 
 function grab(w, h, solid) {
   const c = document.createElement("canvas");
@@ -523,69 +526,59 @@ function grab(w, h, solid) {
   return g.getImageData(0, 0, w, h);
 }
 
+// The matted picture cropped to the box of every pixel with alpha > 0 (no fully transparent margins). The box comes from
+// the alpha computed here, not from reading the picture back, which can add noise in some browsers.
 function matte(w, h) {
   const b = grab(w, h, BLACK);
   const wt = grab(w, h, WHITE).data;
   const px = b.data;
-  for (let i = 0; i < px.length; i += 4) {
-    let a = 0;
-    for (let c = 0; c < 3; c++) a = Math.max(a, 255 - wt[i + c] + px[i + c]);
-    a = Math.min(255, a);
-    for (let c = 0; c < 3; c++) px[i + c] = a ? Math.min(255, Math.round((px[i + c] * 255) / a)) : 0;
-    px[i + 3] = a;
-  }
-  const out = document.createElement("canvas");
-  out.width = w;
-  out.height = h;
-  out.getContext("2d").putImageData(b, 0, 0);
-  return out;
-}
-
-// Transparent picture: drop the fully transparent margins (crop to the box of every pixel with alpha > 0)
-function cropToContent(src) {
-  const { width: w, height: h } = src;
-  const px = src.getContext("2d").getImageData(0, 0, w, h).data;
   let x0 = w;
   let y0 = h;
   let x1 = -1;
   let y1 = -1;
-  for (let y = 0; y < h; y++) {
-    const row = y * w * 4;
-    for (let x = 0; x < w; x++) {
-      if (px[row + x * 4 + 3] === 0) continue;
+  for (let i = 0; i < px.length; i += 4) {
+    let a = 0;
+    for (let c = 0; c < 3; c++) a = Math.max(a, 255 - wt[i + c] + px[i + c]);
+    a = Math.min(255, a);
+    if (a <= MATTE_FLOOR) a = 0; // readback noise (color management, anti-fingerprinting) must not count as content
+    for (let c = 0; c < 3; c++) px[i + c] = a ? Math.min(255, Math.round((px[i + c] * 255) / a)) : 0;
+    px[i + 3] = a;
+    if (a) {
+      const x = (i >> 2) % w;
+      const y = Math.floor((i >> 2) / w);
       if (x < x0) x0 = x;
       if (x > x1) x1 = x;
-      y0 = Math.min(y0, y);
+      if (y < y0) y0 = y;
       y1 = y;
     }
   }
-  if (x1 < 0) return src; // nothing drawn: keep the full frame
+  if (x1 < 0) [x0, y0, x1, y1] = [0, 0, w - 1, h - 1]; // nothing drawn: keep the full frame
   const out = document.createElement("canvas");
   out.width = x1 - x0 + 1;
   out.height = y1 - y0 + 1;
-  out.getContext("2d").drawImage(src, -x0, -y0);
+  out.getContext("2d").putImageData(b, -x0, -y0);
   return out;
 }
 
 async function saveImage(transparent) {
   const w = canvas.width;
   const h = canvas.height;
-  const out = document.createElement("canvas");
-  out.width = w;
-  out.height = h;
-  const ctx = out.getContext("2d");
   const who = slug(monsterOf(selCostume.value)?.name ?? "monster"); // named when clicked, not when the file is ready
   let bgName = "custom";
   if (transparent) bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
   else if (stage !== CUSTOM) bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
   // the WebGL canvas is only readable right after a render, in the same task: render, then copy at once
+  let out;
   if (transparent) {
-    ctx.drawImage(matte(w, h), 0, 0);
+    out = matte(w, h);
   } else {
+    out = document.createElement("canvas");
+    out.width = w;
+    out.height = h;
     draw();
-    ctx.drawImage(canvas, 0, 0);
+    out.getContext("2d").drawImage(canvas, 0, 0);
   }
-  const blob = await new Promise((r) => (transparent ? cropToContent(out) : out).toBlob(r, "image/png"));
+  const blob = await new Promise((r) => out.toBlob(r, "image/png"));
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = `${who}_${slug(bgName)}.png`;
