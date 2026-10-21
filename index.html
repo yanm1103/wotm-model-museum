@@ -102,6 +102,10 @@
           <p id="stats"></p>
         </div>
         <p id="status" role="status"></p>
+        <a id="kofi" href="https://ko-fi.com/J0R5297P75" target="_blank" rel="noopener" title="Support me on ko-fi.com">
+          <img src="https://storage.ko-fi.com/cdn/cup-border.png" alt="" width="22" height="15" />
+          <span>send caffeine power</span>
+        </a>
       </aside>
       <button id="drawer-toggle" type="button" aria-controls="panel" aria-expanded="true" aria-label="Hide controls">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -110,6 +114,8 @@
       </button>
     </div>
 
+    <!-- bottom of the screen: the animation player stacked above the footer, so the footer can wrap without covering it -->
+    <div id="bottom">
     <!-- animation player: pause, step one frame, scrub to any frame -->
     <div id="player" hidden>
       <div class="anim-row">
@@ -150,6 +156,7 @@
     </div>
 
     <footer>Fan project by TwistZero. War of the Monsters © Sony Interactive Entertainment; not affiliated with Sony.</footer>
+    </div>
 
     <script type="module" src="./src/main.js"></script>
   </body>
