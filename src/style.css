@@ -1,14 +1,18 @@
 :root {
-  --painel: rgba(12, 10, 16, 0.78);
-  --borda: rgba(255, 255, 255, 0.14);
-  --texto: #f2ede4;
-  --fraco: #b9b0a2;
-  --destaque: #f0a32a;
+  --panel: rgba(12, 10, 16, 0.78);
+  --border: rgba(255, 255, 255, 0.14);
+  --text: #f2ede4;
+  --muted: #b9b0a2;
+  --accent: #f0a32a;
   color-scheme: dark;
 }
 
 * {
   box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
 }
 
 html,
@@ -17,19 +21,19 @@ body {
   height: 100%;
   overflow: hidden;
   background: #16131b;
-  color: var(--texto);
+  color: var(--text);
   font: 14px/1.4 system-ui, "Segoe UI", Roboto, sans-serif;
 }
 
-/* foto da fase atrás do canvas (o canvas é transparente) */
-#fundo {
+/* stage picture behind the canvas (the canvas is transparent) */
+#backdrop {
   position: fixed;
   inset: 0;
   background: #16131b center / cover no-repeat;
   transition: background-image 0.25s;
 }
 
-#cena {
+#scene {
   position: fixed;
   inset: 0;
   width: 100%;
@@ -38,17 +42,78 @@ body {
   touch-action: none;
 }
 
-#painel {
+/* Drawer on the left: the toggle button sits on the panel's right edge. Closed, the whole drawer slides left until only the
+   button is left on screen. */
+#drawer {
   position: fixed;
   top: 16px;
   left: 16px;
-  width: min(260px, calc(100vw - 32px));
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  transition: transform 0.25s ease;
+}
+
+#drawer.closed {
+  transform: translateX(calc(-100% + 38px));
+}
+
+#drawer-toggle {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+  cursor: pointer;
+}
+
+#drawer-toggle:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+#drawer-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* open: the arrow points left (push the drawer away); closed: right (pull it back) */
+#drawer-toggle svg {
+  transform: rotate(180deg);
+  transition: transform 0.25s ease;
+}
+
+#drawer.closed #drawer-toggle svg {
+  transform: none;
+}
+
+#drawer.closed #panel {
+  visibility: hidden;
+  transition: visibility 0s 0.25s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #drawer,
+  #drawer-toggle svg {
+    transition: none;
+  }
+}
+
+#panel {
+  width: min(280px, calc(100vw - 32px - 46px));
+  max-height: calc(100dvh - 56px);
+  overflow-y: auto;
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--painel);
-  border: 1px solid var(--borda);
+  background: var(--panel);
+  border: 1px solid var(--border);
   border-radius: 10px;
   backdrop-filter: blur(6px);
 }
@@ -63,7 +128,7 @@ label {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  color: var(--fraco);
+  color: var(--muted);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -74,26 +139,283 @@ select {
   font-size: 14px;
   text-transform: none;
   letter-spacing: normal;
-  color: var(--texto);
+  color: var(--text);
   background: #221e29;
-  border: 1px solid var(--borda);
+  border: 1px solid var(--border);
   border-radius: 6px;
   padding: 6px 8px;
 }
 
+select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 select:focus-visible {
-  outline: 2px solid var(--destaque);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 
-#estado {
+/* ---- background picker: thumbnails like a file browser, picture on top and name below */
+fieldset {
   margin: 0;
-  color: var(--fraco);
-  font-size: 12px;
+  padding: 0;
+  border: 0;
+  min-width: 0;
 }
 
-#estado:empty {
+legend {
+  padding: 0;
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+#stage-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  max-height: 232px;
+  overflow-y: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+
+#stage-grid .thumb {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 11px;
+  line-height: 1.25;
+  text-transform: none;
+  letter-spacing: normal;
+  text-align: center;
+  cursor: pointer;
+}
+
+#stage-grid .thumb:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+#stage-grid .thumb:has(input:checked) {
+  background: rgba(240, 163, 42, 0.16);
+  border-color: var(--accent);
+}
+
+#stage-grid .thumb:has(input:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* the radio stays in the page for keyboard and screen readers, but is not drawn */
+#stage-grid input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+#stage-grid img,
+#stage-grid .swatch {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 1;
+  border-radius: 4px;
+  background: #221e29;
+  object-fit: cover;
+}
+
+#stage-grid .swatch {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.color-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.color-row input[type="color"] {
+  width: 64px;
+  height: 28px;
+  padding: 2px;
+  background: #221e29;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.color-row input[type="color"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+#stage-grid .thumb span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---- download and triangle counter */
+#model-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.button {
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  color: var(--text);
+  background: #2a2532;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.button:hover {
+  border-color: var(--accent);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---- loading spinner where the monster goes */
+#loader {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  pointer-events: none;
+}
+
+/* a dark disc behind the ring keeps it readable over busy stage pictures */
+.spinner {
+  position: relative;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: rgba(12, 10, 16, 0.82);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+
+.spinner::before {
+  content: "";
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  border: 5px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--accent);
+  border-right-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+
+#loader-text {
+  margin: 0;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: rgba(12, 10, 16, 0.82);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner::before {
+    animation-duration: 2.4s;
+  }
+}
+
+details {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+details[open] summary {
+  margin-bottom: 8px;
+}
+
+.slider {
+  margin-top: 6px;
+}
+
+.slider span {
+  display: flex;
+  justify-content: space-between;
+}
+
+.slider output {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  text-transform: none;
+}
+
+input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+#stats {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+#stats strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+#stats:empty,
+#status:empty {
   display: none;
+}
+
+#status {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 footer {

@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 
-// base relativa: o build funciona em qualquer subpasta da hospedagem
+// relative base: the build works from any subfolder of the host
 export default defineConfig({
   base: "./",
-  build: { chunkSizeWarningLimit: 1000 }, // o three.js sozinho passa dos 500 kB padrão
+  build: { chunkSizeWarningLimit: 1000 }, // three.js alone is over the default 500 kB
 });

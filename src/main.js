@@ -1,25 +1,32 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { MONSTROS, FASES } from "./catalogo.js";
+import { MONSTERS, STAGES } from "./catalog.js";
 
 const BASE = import.meta.env.BASE_URL;
 
-// As contas de cor do jogo são feitas direto nos valores da textura e do vértice, sem conversão de espaço de cor: desligar a
-// gestão de cor do three.js deixa o resultado igual ao do Renderer do nativo (cor * (0,7 + 0,6 * luz)).
+// The game does its color math straight on texture and vertex values, with no color space conversion. Turning off three.js
+// color management makes the result match the game port's renderer (color * (0.7 + 0.6 * light)).
 THREE.ColorManagement.enabled = false;
 
-// Câmera como a da lista de saves (native/wotm_model.hpp, Renderer::render): 3/4 para a direita, um pouco acima
+// Camera like the game port's save list (native/wotm_model.hpp, Renderer::render): 3/4 view to the right, slightly above
 const YAW = THREE.MathUtils.degToRad(35);
 const PITCH = THREE.MathUtils.degToRad(8);
 const FOVY = 30;
 
-const canvas = document.getElementById("cena");
-const fundo = document.getElementById("fundo");
-const selMonstro = document.getElementById("monstro");
-const selFase = document.getElementById("fase");
+const canvas = document.getElementById("scene");
+const backdrop = document.getElementById("backdrop");
+const selMonster = document.getElementById("monster");
+const stageGrid = document.getElementById("stage-grid");
+const selMesh = document.getElementById("mesh");
+const selLight = document.getElementById("light");
 const logo = document.getElementById("logo");
-const estado = document.getElementById("estado");
+const stats = document.getElementById("stats");
+const status = document.getElementById("status");
+const download = document.getElementById("download");
+const downloadLabel = document.getElementById("download-label");
+const loadingBox = document.getElementById("loader");
+const loadingText = document.getElementById("loader-text");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -30,67 +37,156 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(FOVY, 1, 1, 10000);
 scene.add(camera);
 
-// Luz do Renderer do nativo: ambiente 0,7 + direcional 0,6 * max(0, n.L). O Lambert do three.js divide por pi.
-scene.add(new THREE.AmbientLight(0xffffff, 0.7 * Math.PI));
-const sol = new THREE.DirectionalLight(0xffffff, 0.6 * Math.PI);
-camera.add(sol, sol.target); // a luz acompanha a câmera, como no nativo (calculada a partir do yaw da câmera)
+// Lighting: ambient + one directional light attached to the camera (the game port derives it from the camera yaw too).
+// Intensities are the renderer's (color * (ambient + directional * max(0, n.L))); three.js Lambert divides by pi, hence * PI.
+const ambient = new THREE.AmbientLight(0xffffff, 0);
+const sun = new THREE.DirectionalLight(0xffffff, 0);
+scene.add(ambient);
+camera.add(sun, sun.target);
+
+// The game port's light direction in camera space, in degrees: direction 0 = coming from behind the camera (lighting the
+// monster's front), positive to the right; height 0 = horizontal. It does not depend on the monster.
+const GAME_LIGHT = (() => {
+  const dir = new THREE.Vector3(Math.sin(YAW) * Math.cos(PITCH), Math.sin(PITCH), -Math.cos(YAW) * Math.cos(PITCH));
+  const cam = new THREE.PerspectiveCamera();
+  cam.position.copy(dir);
+  cam.lookAt(0, 0, 0);
+  cam.updateMatrixWorld(true);
+  const L = new THREE.Vector3(Math.sin(YAW - 0.7) * 0.6, 0.8, -Math.cos(YAW - 0.7) * 0.6).normalize();
+  const local = cam.worldToLocal(dir.clone().add(L));
+  return {
+    az: Math.round(THREE.MathUtils.radToDeg(Math.atan2(local.x, local.z))),
+    el: Math.round(THREE.MathUtils.radToDeg(Math.asin(THREE.MathUtils.clamp(local.y, -1, 1)))),
+  };
+})();
+
+const LIGHT_PRESETS = {
+  game: { amb: 0.7, dir: 0.6, ...GAME_LIGHT },
+  unlit: { amb: 1.5, dir: 0, ...GAME_LIGHT },
+  side: { amb: 0.35, dir: 1.2, az: 85, el: 15 },
+  top: { amb: 0.45, dir: 1, az: 10, el: 80 },
+  back: { amb: 0.4, dir: 1.3, az: 160, el: 25 },
+};
+
+function applyLight({ amb, dir, az, el }) {
+  ambient.intensity = amb * Math.PI;
+  sun.intensity = dir * Math.PI;
+  const a = THREE.MathUtils.degToRad(az);
+  const e = THREE.MathUtils.degToRad(el);
+  sun.position.set(Math.sin(a) * Math.cos(e), Math.sin(e), Math.cos(a) * Math.cos(e));
+  sun.target.position.set(0, 0, 0);
+}
+
+// Wireframe: a copy of each mesh bound to the same bones, with a wire material. The solid mesh is pushed back a little
+// (polygonOffset) so the lines don't fight with it in "solid + wireframe".
+const wireMaterial = new THREE.MeshBasicMaterial({ color: 0xc8ecff, wireframe: true, transparent: true, depthWrite: false });
 
 const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.dampingFactor = 0.1;
 
-const loader = new GLTFLoader();
-let antes = performance.now();
-let atual = null; // { root, mixer }
-let pedido = 0;
+const gltfLoader = new GLTFLoader();
+let lastTime = performance.now();
+let current = null; // { root, mixer }
+let request = 0;
 
-// ---- preferências do visitante (só conveniência; funciona sem)
-function lembrar(chave, valor) {
+// ---- visitor preferences (convenience only; the page works without them)
+function remember(key, value) {
   try {
-    localStorage.setItem("wotm." + chave, valor);
+    localStorage.setItem("wotm." + key, value);
   } catch {}
 }
-function lembrado(chave) {
+function recall(key) {
   try {
-    return localStorage.getItem("wotm." + chave);
+    return localStorage.getItem("wotm." + key);
   } catch {
     return null;
   }
 }
 
 // ---- selects
-for (const m of MONSTROS) {
-  for (const t of m.trajes) {
+for (const m of MONSTERS) {
+  for (const c of m.costumes) {
     const op = document.createElement("option");
-    op.value = `${m.prefixo}${t}`;
-    op.textContent = m.trajes.length > 1 ? `${m.nome} (traje ${t + 1})` : m.nome;
-    selMonstro.append(op);
+    op.value = `${m.prefix}${c}`;
+    op.textContent = m.costumes.length > 1 ? `${m.name} (costume ${c + 1})` : m.name;
+    selMonster.append(op);
   }
 }
-for (const f of FASES) {
-  const op = document.createElement("option");
-  op.value = f.arquivo;
-  op.textContent = f.nome;
-  selFase.append(op);
-}
-const semFundo = document.createElement("option");
-semFundo.value = "";
-semFundo.textContent = "Nenhum";
-selFase.append(semFundo);
+// Background picker: one radio per stage, drawn as a thumbnail (small picture from stages/thumbs/, name below), plus a
+// "Custom" tile for a plain color of the visitor's choice
+const CUSTOM = "custom";
+const DEFAULT_COLOR = "#2b2f3a";
+const colorRow = document.getElementById("color-row");
+const colorInput = document.getElementById("bg-color");
+let customSwatch = null;
 
-function monstroDe(arquivo) {
-  return MONSTROS.find((m) => arquivo.startsWith(m.prefixo));
+for (const s of [...STAGES, { file: CUSTOM, name: "Custom" }]) {
+  const tile = document.createElement("label");
+  tile.className = "thumb";
+  tile.title = s.name;
+  const radio = document.createElement("input");
+  radio.type = "radio";
+  radio.name = "stage";
+  radio.value = s.file;
+  let pic;
+  if (s.file === CUSTOM) {
+    pic = document.createElement("div");
+    pic.className = "swatch";
+    customSwatch = pic;
+    // clicking the tile (even when already picked) opens the color picker
+    tile.addEventListener("click", () => {
+      try {
+        colorInput.showPicker?.();
+      } catch {}
+    });
+  } else {
+    pic = document.createElement("img");
+    pic.src = `${BASE}stages/thumbs/${s.file}.png`;
+    pic.alt = "";
+    pic.loading = "lazy";
+    pic.width = 128;
+    pic.height = 64;
+  }
+  const name = document.createElement("span");
+  name.textContent = s.name;
+  tile.append(radio, pic, name);
+  stageGrid.append(tile);
 }
 
-// ---- fundo
-function trocarFundo(arquivo) {
-  fundo.style.backgroundImage = arquivo ? `url("${BASE}fundos/${arquivo}.png")` : "none";
-  lembrar("fase", arquivo);
+function monsterOf(file) {
+  return MONSTERS.find((m) => file.startsWith(m.prefix));
 }
 
-// ---- monstro
-function material(original) {
-  // Lambert = ambiente + direcional por fragmento, sobre textura * cor de vértice (o glTF traz PBR sem metal)
+// ---- background
+let stage = STAGES[0].file;
+
+function setStage(file) {
+  stage = file;
+  const custom = file === CUSTOM;
+  backdrop.style.backgroundImage = custom ? "none" : `url("${BASE}stages/${file}.png")`;
+  backdrop.style.backgroundColor = custom ? colorInput.value : "";
+  colorRow.hidden = !custom;
+  const radio = stageGrid.querySelector(`input[value="${file}"]`);
+  if (radio) radio.checked = true;
+  remember("stage", file);
+}
+
+function setColor(hex) {
+  colorInput.value = hex;
+  customSwatch.style.background = hex;
+  if (stage === CUSTOM) backdrop.style.backgroundColor = hex;
+  remember("bgcolor", hex);
+}
+colorInput.addEventListener("input", () => setColor(colorInput.value));
+
+function kb(bytes) {
+  return `${Math.round(bytes / 1024).toLocaleString("en-US")} KB`;
+}
+
+// ---- monster
+function makeMaterial(original) {
+  // Lambert = ambient + directional per fragment, over texture * vertex color (the glTF carries non-metallic PBR)
   const m = new THREE.MeshLambertMaterial({
     map: original.map,
     vertexColors: original.vertexColors,
@@ -98,6 +194,10 @@ function material(original) {
     alphaTest: original.alphaTest,
     side: original.side,
     depthWrite: original.depthWrite,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+    flatShading: true, // hard shading: one normal per triangle (the game's own normals are smoothed)
   });
   if (m.map) m.map.colorSpace = THREE.NoColorSpace;
   m.name = original.name;
@@ -105,24 +205,66 @@ function material(original) {
   return m;
 }
 
-function descartar(obj) {
+function dispose(obj) {
   obj.traverse((o) => {
     if (!o.isMesh) return;
     o.geometry.dispose();
     for (const m of [o.material].flat()) {
+      if (m === wireMaterial) continue; // shared between monsters
       m.map?.dispose();
       m.dispose();
     }
   });
 }
 
-// O enquadramento do nativo é pela altura (tela larga). Em tela estreita (celular em pé) afasta para caber na largura.
-let distBase = 0;
-function folga() {
+function solidMeshes(root) {
+  const list = [];
+  root.traverse((o) => o.isMesh && !o.userData.wire && list.push(o));
+  return list;
+}
+
+function addWireframe(root) {
+  for (const o of solidMeshes(root)) {
+    let w;
+    if (o.isSkinnedMesh) {
+      w = new THREE.SkinnedMesh(o.geometry, wireMaterial);
+      w.bind(o.skeleton, o.bindMatrix);
+    } else {
+      w = new THREE.Mesh(o.geometry, wireMaterial);
+    }
+    w.frustumCulled = false;
+    w.userData.wire = true;
+    o.add(w); // child with identity matrix: same place as the solid mesh
+  }
+}
+
+function applyMesh(mode) {
+  wireMaterial.opacity = mode === "wire" ? 0.9 : 0.45;
+  current?.root.traverse((o) => {
+    if (!o.isMesh) return;
+    // material.visible (not o.visible) hides the solid mesh without hiding the wireframe, which is its child
+    if (o.userData.wire) o.visible = mode !== "solid";
+    else o.material.visible = mode !== "wire";
+  });
+}
+
+
+function countTriangles(root) {
+  let n = 0;
+  for (const o of solidMeshes(root)) {
+    const g = o.geometry;
+    n += (g.index ? g.index.count : g.attributes.position.count) / 3;
+  }
+  return n;
+}
+
+// The game port frames by height (wide screen). On narrow screens (phone in portrait) back off to fit the width.
+let baseDist = 0;
+function slack() {
   return 1 / Math.min(camera.aspect, 1);
 }
 
-function limitesDaCamera(dist) {
+function cameraLimits(dist) {
   camera.near = dist * 0.05;
   camera.far = dist * 6;
   camera.updateProjectionMatrix();
@@ -131,119 +273,261 @@ function limitesDaCamera(dist) {
   controls.update();
 }
 
-// Caixa fixa do idle inteiro (Model::computeFraming): sem isso a câmera "dança" com a animação
-function enquadrar(root, mixer, clip, zoom) {
-  const caixa = new THREE.Box3();
-  const amostras = 24;
-  for (let s = 0; s < amostras; s++) {
-    mixer.setTime((clip.duration * s) / amostras);
+// Fixed box over the whole idle (Model::computeFraming): without it the camera "dances" with the animation
+function frame(root, mixer, clip, zoom) {
+  const box = new THREE.Box3();
+  const samples = 24;
+  for (let s = 0; s < samples; s++) {
+    mixer.setTime((clip.duration * s) / samples);
     root.updateMatrixWorld(true);
-    caixa.expandByObject(root, true);
+    box.expandByObject(root, true);
   }
   mixer.setTime(0);
-  const centro = caixa.getCenter(new THREE.Vector3());
-  const lado = Math.max(...caixa.getSize(new THREE.Vector3()).toArray(), 1e-3);
-  distBase = (lado * 0.62) / Math.tan(THREE.MathUtils.degToRad(FOVY / 2)) / zoom;
-  const dist = distBase * folga();
+  const center = box.getCenter(new THREE.Vector3());
+  const side = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 1e-3);
+  baseDist = (side * 0.62) / Math.tan(THREE.MathUtils.degToRad(FOVY / 2)) / zoom;
+  const dist = baseDist * slack();
 
-  // jogo: câmera em c + (sen yaw cos pitch, cos yaw cos pitch, sen pitch) * dist, Z para cima; aqui Y para cima (x, z, -y)
+  // game: camera at c + (sin yaw cos pitch, cos yaw cos pitch, sin pitch) * dist, Z up; here Y up (x, z, -y)
   const dir = new THREE.Vector3(Math.sin(YAW) * Math.cos(PITCH), Math.sin(PITCH), -Math.cos(YAW) * Math.cos(PITCH));
-  camera.position.copy(centro).addScaledVector(dir, dist);
-  controls.target.copy(centro);
-  limitesDaCamera(dist);
-
-  // luz "de cima, da frente-esquerda da câmera", guardada no espaço da câmera para acompanhá-la
-  const L = new THREE.Vector3(Math.sin(YAW - 0.7) * 0.6, 0.8, -Math.cos(YAW - 0.7) * 0.6).normalize();
-  camera.updateMatrixWorld(true);
-  sol.position.copy(camera.worldToLocal(camera.position.clone().add(L)));
-  sol.target.position.set(0, 0, 0);
+  camera.position.copy(center).addScaledVector(dir, dist);
+  controls.target.copy(center);
+  cameraLimits(dist);
 }
 
-async function trocarMonstro(arquivo) {
-  const meu = ++pedido;
-  const mon = monstroDe(arquivo);
-  estado.textContent = `Carregando ${mon?.nome ?? arquivo}…`;
+async function setMonster(file) {
+  const mine = ++request;
+  const mon = monsterOf(file);
+  const label = mon?.name ?? file;
+  const url = `${BASE}models/${file}.glb`;
+  status.textContent = "";
   logo.hidden = true;
   if (mon) {
-    logo.src = `${BASE}fundos/logo_${mon.prefixo.toLowerCase()}.png`;
-    logo.alt = mon.nome;
+    logo.src = `${BASE}logos/${mon.prefix.toLowerCase()}.png`;
+    logo.alt = mon.name;
     logo.onload = () => (logo.hidden = false);
   }
-  lembrar("monstro", arquivo);
+  remember("monster", file);
+
+  // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
+  if (current) current.root.visible = false;
+  download.hidden = true;
+  snapshot.hidden = true;
+  stats.textContent = "";
+  loadingText.textContent = `Loading ${label}…`;
+  const spinnerTimer = setTimeout(() => (loadingBox.hidden = false), 150);
+  let bytes = 0;
 
   let gltf;
   try {
-    gltf = await loader.loadAsync(`${BASE}modelos/${arquivo}.glb`);
+    gltf = await gltfLoader.loadAsync(url, (e) => {
+      if (mine !== request) return;
+      bytes = e.total || e.loaded;
+      loadingText.textContent = e.total
+        ? `Loading ${label}… ${Math.floor((100 * e.loaded) / e.total)}% (${kb(e.loaded)} of ${kb(e.total)})`
+        : `Loading ${label}… ${kb(e.loaded)}`;
+    });
   } catch (e) {
-    if (meu === pedido) estado.textContent = `Não consegui carregar ${arquivo}.glb`;
+    if (mine === request) {
+      clearTimeout(spinnerTimer);
+      loadingBox.hidden = true;
+      if (current) current.root.visible = true;
+      status.textContent = `Could not load ${file}.glb`;
+    }
     console.error(e);
     return;
   }
-  if (meu !== pedido) {
-    descartar(gltf.scene);
+  if (mine !== request) {
+    dispose(gltf.scene);
     return;
   }
+  clearTimeout(spinnerTimer);
+  loadingBox.hidden = true;
 
   const root = gltf.scene;
   root.traverse((o) => {
     if (o.isMesh) {
-      o.material = material(o.material);
-      o.frustumCulled = false; // a caixa da malha skinned é a da pose de base
+      o.material = makeMaterial(o.material);
+      o.frustumCulled = false; // the skinned mesh's bounding box is the rest pose's
     }
   });
+  addWireframe(root);
 
   const mixer = new THREE.AnimationMixer(root);
   const clip = gltf.animations.find((a) => a.name === "idle") ?? gltf.animations[0];
   if (clip) {
     mixer.clipAction(clip).play();
-    enquadrar(root, mixer, clip, mon?.zoom ?? 1);
+    frame(root, mixer, clip, mon?.zoom ?? 1);
   }
 
-  if (atual) {
-    scene.remove(atual.root);
-    atual.mixer.stopAllAction();
-    descartar(atual.root);
+  if (current) {
+    scene.remove(current.root);
+    current.mixer.stopAllAction();
+    dispose(current.root);
   }
   scene.add(root);
-  atual = { root, mixer };
-  estado.textContent = "";
+  current = { root, mixer };
+  applyMesh(selMesh.value);
+  stats.innerHTML = `<strong>${countTriangles(root).toLocaleString("en-US")}</strong> triangles`;
+  download.href = url;
+  download.download = `${label.replace(/[^\w-]+/g, "_")}_${file}.glb`;
+  downloadLabel.textContent = bytes ? `Download .glb (${kb(bytes)})` : "Download .glb";
+  download.hidden = false;
+  snapshot.hidden = false;
 }
 
-selMonstro.addEventListener("change", () => trocarMonstro(selMonstro.value));
-selFase.addEventListener("change", () => trocarFundo(selFase.value));
+// ---- save the picture the visitor composed: background (stage picture or color) + the 3D view, at screen resolution
+const snapshot = document.getElementById("snapshot");
 
-// ---- laço
-function redimensionar() {
+function slug(s) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+}
+
+async function saveImage() {
+  const w = canvas.width;
+  const h = canvas.height;
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const ctx = out.getContext("2d");
+  let bgName = "custom";
+  if (stage === CUSTOM) {
+    ctx.fillStyle = colorInput.value;
+    ctx.fillRect(0, 0, w, h);
+  } else {
+    const img = new Image();
+    img.src = `${BASE}stages/${stage}.png`;
+    await img.decode();
+    // same crop as the page's "background-size: cover; background-position: center"
+    const k = Math.max(w / img.naturalWidth, h / img.naturalHeight);
+    const dw = img.naturalWidth * k;
+    const dh = img.naturalHeight * k;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(img, (w - dw) / 2, (h - dh) / 2, dw, dh);
+    bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
+  }
+  // the WebGL canvas is only readable right after a render, in the same task: render, then copy at once
+  renderer.render(scene, camera);
+  ctx.drawImage(canvas, 0, 0);
+  const blob = await new Promise((r) => out.toBlob(r, "image/png"));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `${slug(monsterOf(selMonster.value)?.name ?? "monster")}_${slug(bgName)}.png`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+snapshot.addEventListener("click", () => {
+  saveImage().catch((e) => {
+    status.textContent = "Could not save the image";
+    console.error(e);
+  });
+});
+
+selMonster.addEventListener("change", () => setMonster(selMonster.value));
+stageGrid.addEventListener("change", (e) => setStage(e.target.value));
+selMesh.addEventListener("change", () => {
+  applyMesh(selMesh.value);
+  remember("mesh", selMesh.value);
+});
+
+// ---- drawer
+const drawer = document.getElementById("drawer");
+const drawerToggle = document.getElementById("drawer-toggle");
+const panel = document.getElementById("panel");
+
+function setDrawer(open) {
+  drawer.classList.toggle("closed", !open);
+  drawerToggle.setAttribute("aria-expanded", String(open));
+  drawerToggle.setAttribute("aria-label", open ? "Hide controls" : "Show controls");
+  panel.inert = !open;
+}
+drawerToggle.addEventListener("click", () => {
+  const open = drawer.classList.contains("closed");
+  setDrawer(open);
+  remember("drawer", open ? "open" : "closed");
+});
+
+// ---- lighting controls
+const sliders = {
+  amb: { input: document.getElementById("amb"), out: document.getElementById("v-amb"), fmt: (v) => v.toFixed(2) },
+  dir: { input: document.getElementById("dir"), out: document.getElementById("v-dir"), fmt: (v) => v.toFixed(2) },
+  az: { input: document.getElementById("az"), out: document.getElementById("v-az"), fmt: (v) => `${v}°` },
+  el: { input: document.getElementById("el"), out: document.getElementById("v-el"), fmt: (v) => `${v}°` },
+};
+const customOption = selLight.querySelector('option[value="custom"]');
+
+function lightFromSliders() {
+  return Object.fromEntries(Object.entries(sliders).map(([k, s]) => [k, Number(s.input.value)]));
+}
+
+function showLight(light, preset) {
+  for (const [k, s] of Object.entries(sliders)) {
+    s.input.value = light[k];
+    s.out.textContent = s.fmt(light[k]);
+  }
+  customOption.hidden = preset !== "custom";
+  selLight.value = preset;
+  applyLight(light);
+  remember("light", JSON.stringify({ preset, ...light }));
+}
+
+selLight.addEventListener("change", () => showLight(LIGHT_PRESETS[selLight.value], selLight.value));
+for (const s of Object.values(sliders)) s.input.addEventListener("input", () => showLight(lightFromSliders(), "custom"));
+
+// ---- loop
+function resize() {
   const w = canvas.clientWidth;
   const h = canvas.clientHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
-    const folgaAntes = folga();
+    const slackBefore = slack();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    if (distBase) {
-      // mantém a órbita do visitante e só reajusta a distância à nova proporção
-      const ajuste = folga() / folgaAntes;
-      camera.position.sub(controls.target).multiplyScalar(ajuste).add(controls.target);
-      limitesDaCamera(distBase * folga());
+    if (baseDist) {
+      // keep the visitor's orbit and only adjust the distance to the new aspect
+      const k = slack() / slackBefore;
+      camera.position.sub(controls.target).multiplyScalar(k).add(controls.target);
+      cameraLimits(baseDist * slack());
     }
   }
 }
 
 renderer.setAnimationLoop(() => {
-  redimensionar();
-  const agora = performance.now();
-  atual?.mixer.update(Math.min((agora - antes) / 1000, 0.1)); // aba em segundo plano: não pular a animação inteira
-  antes = agora;
+  resize();
+  const now = performance.now();
+  current?.mixer.update(Math.min((now - lastTime) / 1000, 0.1)); // background tab: don't skip the whole animation
+  lastTime = now;
   controls.update();
   renderer.render(scene, camera);
 });
 
-// ---- início
-const faseSalva = lembrado("fase");
-selFase.value = faseSalva !== null && [...selFase.options].some((o) => o.value === faseSalva) ? faseSalva : FASES[0].arquivo;
-trocarFundo(selFase.value);
+// ---- start
+function restoreSelect(sel, key) {
+  const v = recall(key);
+  if ([...sel.options].some((o) => o.value === v)) sel.value = v;
+}
+restoreSelect(selMesh, "mesh");
+// starts closed on narrow screens (the open panel would cover the monster); the visitor's last choice wins
+const savedDrawer = recall("drawer");
+drawer.style.transition = "none"; // no slide on page load
+setDrawer(savedDrawer ? savedDrawer === "open" : window.innerWidth >= 700);
+requestAnimationFrame(() => requestAnimationFrame(() => (drawer.style.transition = "")));
 
-const monstroSalvo = lembrado("monstro");
-if ([...selMonstro.options].some((o) => o.value === monstroSalvo)) selMonstro.value = monstroSalvo;
-trocarMonstro(selMonstro.value);
+let savedLight = null;
+try {
+  savedLight = JSON.parse(recall("light"));
+} catch {}
+if (savedLight && savedLight.preset in LIGHT_PRESETS) showLight(LIGHT_PRESETS[savedLight.preset], savedLight.preset);
+else if (savedLight?.preset === "custom" && ["amb", "dir", "az", "el"].every((k) => Number.isFinite(savedLight[k])))
+  showLight(savedLight, "custom");
+else showLight(LIGHT_PRESETS.game, "game");
+
+const savedColor = recall("bgcolor");
+setColor(/^#[0-9a-f]{6}$/i.test(savedColor ?? "") ? savedColor : DEFAULT_COLOR);
+let savedStage = recall("stage");
+if (savedStage === "") savedStage = CUSTOM; // earlier "None" option
+setStage(savedStage === CUSTOM || STAGES.some((s) => s.file === savedStage) ? savedStage : STAGES[0].file);
+
+restoreSelect(selMonster, "monster");
+setMonster(selMonster.value);

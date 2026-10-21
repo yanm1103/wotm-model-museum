@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -8,23 +8,95 @@
     <link rel="stylesheet" href="./src/style.css" />
   </head>
   <body>
-    <div id="fundo"></div>
-    <canvas id="cena"></canvas>
+    <div id="backdrop"></div>
+    <canvas id="scene"></canvas>
 
-    <aside id="painel">
-      <img id="logo" alt="" hidden />
-      <label>
-        Monstro
-        <select id="monstro"></select>
-      </label>
-      <label>
-        Fundo
-        <select id="fase"></select>
-      </label>
-      <p id="estado" role="status"></p>
-    </aside>
+    <!-- shown where the monster goes while its .glb (or, on first visit, the page's own script) is still downloading -->
+    <div id="loader" role="status" aria-live="polite">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loader-text">Loading…</p>
+    </div>
 
-    <footer>Projeto de fãs. War of the Monsters © Sony Interactive Entertainment; sem relação com a Sony.</footer>
+    <div id="drawer">
+      <aside id="panel">
+        <img id="logo" alt="" hidden />
+        <label>
+          Monster
+          <select id="monster"></select>
+        </label>
+        <fieldset id="stages">
+          <legend>Background</legend>
+          <div id="stage-grid"></div>
+          <label id="color-row" class="color-row" hidden>
+            <span>Color</span>
+            <input type="color" id="bg-color" value="#2b2f3a" />
+          </label>
+        </fieldset>
+        <label>
+          Mesh
+          <select id="mesh">
+            <option value="solid">Solid</option>
+            <option value="wire">Wireframe</option>
+            <option value="both">Solid + wireframe</option>
+          </select>
+        </label>
+        <label>
+          Lighting
+          <select id="light">
+            <option value="game">Game</option>
+            <option value="unlit">Unlit (texture only)</option>
+            <option value="side">Side</option>
+            <option value="top">Top</option>
+            <option value="back">Backlight</option>
+            <option value="custom" hidden>Custom</option>
+          </select>
+        </label>
+        <details id="light-tweaks">
+          <summary>Adjust lighting</summary>
+          <label class="slider">
+            <span>Ambient <output id="v-amb"></output></span>
+            <input type="range" id="amb" min="0" max="1.5" step="0.05" />
+          </label>
+          <label class="slider">
+            <span>Directional <output id="v-dir"></output></span>
+            <input type="range" id="dir" min="0" max="2" step="0.05" />
+          </label>
+          <label class="slider">
+            <span>Direction <output id="v-az"></output></span>
+            <input type="range" id="az" min="-180" max="180" step="1" />
+          </label>
+          <label class="slider">
+            <span>Height <output id="v-el"></output></span>
+            <input type="range" id="el" min="-60" max="90" step="1" />
+          </label>
+        </details>
+        <div id="model-info">
+          <a id="download" class="button" href="#" download hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M12 4v11m0 0l-4.5-4.5M12 15l4.5-4.5M5 19h14" fill="none" stroke="currentColor" stroke-width="2"
+                stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            <span id="download-label">Download .glb</span>
+          </a>
+          <button id="snapshot" class="button" type="button" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
+              <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
+            <span>Save image (.png)</span>
+          </button>
+          <p id="stats"></p>
+        </div>
+        <p id="status" role="status"></p>
+      </aside>
+      <button id="drawer-toggle" type="button" aria-controls="panel" aria-expanded="true" aria-label="Hide controls">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+    </div>
+
+    <footer>Fan project by TwistZero. War of the Monsters © Sony Interactive Entertainment; not affiliated with Sony.</footer>
 
     <script type="module" src="./src/main.js"></script>
   </body>
