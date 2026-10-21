@@ -32,7 +32,7 @@ const loadingBox = document.getElementById("loader");
 const loadingText = document.getElementById("loader-text");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // BASE_PIXEL_RATIO (bigger while saving a big picture)
 renderer.outputColorSpace = THREE.LinearSRGBColorSpace;
 renderer.autoClear = false;
 const background = new Background();
@@ -423,7 +423,7 @@ async function setMonster(file) {
   player.hidden = true;
   selAnim.disabled = true;
   download.hidden = true;
-  snapshot.hidden = snapshotAlpha.hidden = true;
+  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = true;
   stats.textContent = "";
   loadingText.textContent = `Loading ${label}…`;
   const spinnerTimer = setTimeout(() => (loadingBox.hidden = false), 150);
@@ -505,12 +505,31 @@ async function setMonster(file) {
   download.download = `${label.replace(/[^\w-]+/g, "_")}_${file}.glb`;
   downloadLabel.textContent = bytes ? `Download model (.glb) ${kb(bytes)}` : "Download model (.glb)";
   download.hidden = false;
-  snapshot.hidden = snapshotAlpha.hidden = false;
+  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = false;
 }
 
 // ---- save the picture the visitor composed: background (stage picture or color) + the 3D view, at screen resolution
 const snapshot = document.getElementById("snapshot");
 const snapshotAlpha = document.getElementById("snapshot-alpha");
+const imageSize = document.getElementById("image-size");
+const sizeInputs = [...imageSize.querySelectorAll("input")];
+// Bigger pictures are drawn at a higher pixel ratio: the stage picture, the effects and the bones' dots all scale with
+// it, so the picture is the same as on screen, only sharper. Capped by what the graphics card can draw (and at 8192 px,
+// past which the browser may run out of memory reading it back).
+const BASE_PIXEL_RATIO = Math.min(window.devicePixelRatio, 2);
+const MAX_PICTURE = Math.min(renderer.getContext().getParameter(renderer.getContext().MAX_RENDERBUFFER_SIZE), 8192);
+
+// the sizes in pixels in the tooltips; sizes too big for this screen are turned off
+function syncImageSizes() {
+  const w = canvas.width;
+  const h = canvas.height;
+  for (const input of sizeInputs) {
+    const k = Number(input.value);
+    input.disabled = Math.max(w, h) * k > MAX_PICTURE;
+    input.parentElement.title = input.disabled ? "Too big for this device" : `${w * k} × ${h * k} px`;
+  }
+  if (sizeInputs.find((i) => i.checked)?.disabled) sizeInputs[0].checked = true;
+}
 
 function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
@@ -571,27 +590,39 @@ function matte(w, h) {
 }
 
 async function saveImage(transparent) {
-  const w = canvas.width;
-  const h = canvas.height;
+  const k = Number(sizeInputs.find((i) => i.checked)?.value ?? 1);
   const who = slug(monsterOf(selCostume.value)?.name ?? "monster"); // named when clicked, not when the file is ready
   let bgName = "custom";
   if (transparent) bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
   else if (stage !== CUSTOM) bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
-  // the WebGL canvas is only readable right after a render, in the same task: render, then copy at once
+  if (k > 1) {
+    status.textContent = `Saving ${canvas.width * k} × ${canvas.height * k} picture…`;
+    await new Promise((r) => setTimeout(r, 50)); // let the message show before the heavy part
+  }
+  // the WebGL canvas is only readable right after a render, in the same task: resize, render, copy, then back to the
+  // screen's size, all at once (the next frame redraws the screen)
   let out;
-  if (transparent) {
-    out = matte(w, h);
-  } else {
-    out = document.createElement("canvas");
-    out.width = w;
-    out.height = h;
-    draw();
-    out.getContext("2d").drawImage(canvas, 0, 0);
+  try {
+    if (k > 1) renderer.setPixelRatio(BASE_PIXEL_RATIO * k);
+    const w = canvas.width;
+    const h = canvas.height;
+    if (transparent) {
+      out = matte(w, h);
+    } else {
+      out = document.createElement("canvas");
+      out.width = w;
+      out.height = h;
+      draw();
+      out.getContext("2d").drawImage(canvas, 0, 0);
+    }
+  } finally {
+    if (k > 1) renderer.setPixelRatio(BASE_PIXEL_RATIO);
   }
   const blob = await new Promise((r) => out.toBlob(r, "image/png"));
+  if (k > 1) status.textContent = "";
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `${who}_${slug(bgName)}.png`;
+  a.download = `${who}_${slug(bgName)}${k > 1 ? `_${k}x` : ""}.png`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
@@ -1000,6 +1031,7 @@ function resize() {
   const h = canvas.clientHeight;
   if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) {
     renderer.setSize(w, h, false);
+    syncImageSizes();
     const slackBefore = slack();
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
