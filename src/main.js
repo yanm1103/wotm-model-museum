@@ -18,7 +18,9 @@ const canvas = document.getElementById("scene");
 const backdrop = document.getElementById("backdrop");
 const selMonster = document.getElementById("monster");
 const stageGrid = document.getElementById("stage-grid");
-const selMesh = document.getElementById("mesh");
+const showMesh = document.getElementById("show-mesh");
+const showWire = document.getElementById("show-wire");
+const showBones = document.getElementById("show-bones");
 const selLight = document.getElementById("light");
 const logo = document.getElementById("logo");
 const stats = document.getElementById("stats");
@@ -238,14 +240,83 @@ function addWireframe(root) {
   }
 }
 
-function applyMesh(mode) {
-  wireMaterial.opacity = mode === "wire" ? 0.9 : 0.45;
-  current?.root.traverse((o) => {
+// Bones: a line from each joint to its parent (SkeletonHelper) plus a dot on every joint, drawn over the mesh
+const BONE_COLOR = new THREE.Color(0xf0a32a);
+const BONE_TIP = new THREE.Color(0xfff1c9);
+const jointTexture = (() => {
+  const c = document.createElement("canvas");
+  c.width = c.height = 32;
+  const g = c.getContext("2d");
+  g.fillStyle = "#fff";
+  g.beginPath();
+  g.arc(16, 16, 14, 0, Math.PI * 2);
+  g.fill();
+  return new THREE.CanvasTexture(c);
+})();
+
+function makeBones(root) {
+  const lines = new THREE.SkeletonHelper(root);
+  const col = lines.geometry.getAttribute("color");
+  for (let i = 0; i < col.count; i += 2) {
+    BONE_COLOR.toArray(col.array, i * 3); // parent end
+    BONE_TIP.toArray(col.array, i * 3 + 3); // child end
+  }
+  Object.assign(lines.material, { depthTest: false, depthWrite: false, transparent: true });
+  lines.renderOrder = 10;
+
+  const positions = new Float32Array(lines.bones.length * 3);
+  const joints = new THREE.Points(
+    new THREE.BufferGeometry().setAttribute("position", new THREE.BufferAttribute(positions, 3)),
+    new THREE.PointsMaterial({
+      color: BONE_COLOR,
+      size: 7,
+      sizeAttenuation: false,
+      map: jointTexture,
+      alphaTest: 0.5,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+    }),
+  );
+  joints.frustumCulled = false;
+  joints.renderOrder = 11;
+
+  const group = new THREE.Group();
+  group.add(lines, joints);
+  group.userData = { lines, joints };
+  return group;
+}
+
+const tmp = new THREE.Vector3();
+function updateJoints(bones) {
+  const { lines, joints } = bones.userData;
+  const pos = joints.geometry.getAttribute("position");
+  lines.bones.forEach((b, i) => b.getWorldPosition(tmp).toArray(pos.array, i * 3));
+  pos.needsUpdate = true;
+}
+
+function disposeBones(bones) {
+  for (const o of bones.children) {
+    o.geometry.dispose();
+    o.material.dispose();
+  }
+}
+
+function layers() {
+  return { mesh: showMesh.checked, wire: showWire.checked, bones: showBones.checked };
+}
+
+function applyLayers() {
+  const l = layers();
+  wireMaterial.opacity = l.mesh ? 0.45 : 0.9;
+  if (!current) return;
+  current.root.traverse((o) => {
     if (!o.isMesh) return;
     // material.visible (not o.visible) hides the solid mesh without hiding the wireframe, which is its child
-    if (o.userData.wire) o.visible = mode !== "solid";
-    else o.material.visible = mode !== "wire";
+    if (o.userData.wire) o.visible = l.wire;
+    else o.material.visible = l.mesh;
   });
+  current.bones.visible = l.bones && current.root.visible;
 }
 
 
@@ -310,9 +381,9 @@ async function setMonster(file) {
   remember("monster", file);
 
   // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
-  if (current) current.root.visible = false;
+  if (current) current.root.visible = current.bones.visible = false;
   download.hidden = true;
-  snapshot.hidden = true;
+  snapshot.hidden = snapshotAlpha.hidden = true;
   stats.textContent = "";
   loadingText.textContent = `Loading ${label}…`;
   const spinnerTimer = setTimeout(() => (loadingBox.hidden = false), 150);
@@ -332,6 +403,7 @@ async function setMonster(file) {
       clearTimeout(spinnerTimer);
       loadingBox.hidden = true;
       if (current) current.root.visible = true;
+      applyLayers();
       status.textContent = `Could not load ${file}.glb`;
     }
     console.error(e);
@@ -361,29 +433,33 @@ async function setMonster(file) {
   }
 
   if (current) {
-    scene.remove(current.root);
+    scene.remove(current.root, current.bones);
     current.mixer.stopAllAction();
     dispose(current.root);
+    disposeBones(current.bones);
   }
-  scene.add(root);
-  current = { root, mixer };
-  applyMesh(selMesh.value);
-  stats.innerHTML = `<strong>${countTriangles(root).toLocaleString("en-US")}</strong> triangles`;
+  const bones = makeBones(root);
+  scene.add(root, bones);
+  current = { root, mixer, bones };
+  applyLayers();
+  const n = (x) => `<strong>${x.toLocaleString("en-US")}</strong>`;
+  stats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
   download.href = url;
   download.download = `${label.replace(/[^\w-]+/g, "_")}_${file}.glb`;
   downloadLabel.textContent = bytes ? `Download .glb (${kb(bytes)})` : "Download .glb";
   download.hidden = false;
-  snapshot.hidden = false;
+  snapshot.hidden = snapshotAlpha.hidden = false;
 }
 
 // ---- save the picture the visitor composed: background (stage picture or color) + the 3D view, at screen resolution
 const snapshot = document.getElementById("snapshot");
+const snapshotAlpha = document.getElementById("snapshot-alpha");
 
 function slug(s) {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
 }
 
-async function saveImage() {
+async function saveImage(transparent) {
   const w = canvas.width;
   const h = canvas.height;
   const out = document.createElement("canvas");
@@ -391,7 +467,9 @@ async function saveImage() {
   out.height = h;
   const ctx = out.getContext("2d");
   let bgName = "custom";
-  if (stage === CUSTOM) {
+  if (transparent) {
+    bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
+  } else if (stage === CUSTOM) {
     ctx.fillStyle = colorInput.value;
     ctx.fillRect(0, 0, w, h);
   } else {
@@ -417,19 +495,26 @@ async function saveImage() {
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
-snapshot.addEventListener("click", () => {
-  saveImage().catch((e) => {
-    status.textContent = "Could not save the image";
-    console.error(e);
+for (const [button, transparent] of [
+  [snapshot, false],
+  [snapshotAlpha, true],
+]) {
+  button.addEventListener("click", () => {
+    saveImage(transparent).catch((e) => {
+      status.textContent = "Could not save the image";
+      console.error(e);
+    });
   });
-});
+}
 
 selMonster.addEventListener("change", () => setMonster(selMonster.value));
 stageGrid.addEventListener("change", (e) => setStage(e.target.value));
-selMesh.addEventListener("change", () => {
-  applyMesh(selMesh.value);
-  remember("mesh", selMesh.value);
-});
+for (const box of [showMesh, showWire, showBones]) {
+  box.addEventListener("change", () => {
+    applyLayers();
+    remember("layers", JSON.stringify(layers()));
+  });
+}
 
 // ---- drawer
 const drawer = document.getElementById("drawer");
@@ -498,6 +583,10 @@ renderer.setAnimationLoop(() => {
   const now = performance.now();
   current?.mixer.update(Math.min((now - lastTime) / 1000, 0.1)); // background tab: don't skip the whole animation
   lastTime = now;
+  if (current?.bones.visible) {
+    current.root.updateMatrixWorld();
+    updateJoints(current.bones);
+  }
   controls.update();
   renderer.render(scene, camera);
 });
@@ -507,7 +596,18 @@ function restoreSelect(sel, key) {
   const v = recall(key);
   if ([...sel.options].some((o) => o.value === v)) sel.value = v;
 }
-restoreSelect(selMesh, "mesh");
+// layers: { mesh, wire, bones }; older visits stored one "mesh" mode (solid / wire / both)
+let savedLayers = null;
+try {
+  savedLayers = JSON.parse(recall("layers"));
+} catch {}
+const oldMode = recall("mesh");
+if (!savedLayers && oldMode) savedLayers = { mesh: oldMode !== "wire", wire: oldMode !== "solid", bones: false };
+if (savedLayers) {
+  showMesh.checked = !!savedLayers.mesh;
+  showWire.checked = !!savedLayers.wire;
+  showBones.checked = !!savedLayers.bones;
+}
 // starts closed on narrow screens (the open panel would cover the monster); the visitor's last choice wins
 const savedDrawer = recall("drawer");
 drawer.style.transition = "none"; // no slide on page load

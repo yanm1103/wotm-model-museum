@@ -32,14 +32,14 @@
             <input type="color" id="bg-color" value="#2b2f3a" />
           </label>
         </fieldset>
-        <label>
-          Mesh
-          <select id="mesh">
-            <option value="solid">Solid</option>
-            <option value="wire">Wireframe</option>
-            <option value="both">Solid + wireframe</option>
-          </select>
-        </label>
+        <fieldset id="layers">
+          <legend>Show</legend>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="show-mesh" checked /> Mesh</label>
+            <label class="check"><input type="checkbox" id="show-wire" /> Wireframe</label>
+            <label class="check"><input type="checkbox" id="show-bones" /> Bones</label>
+          </div>
+        </fieldset>
         <label>
           Lighting
           <select id="light">
@@ -83,7 +83,14 @@
               <path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" />
               <circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" stroke-width="2" />
             </svg>
-            <span>Save image (.png)</span>
+            <span>Save as png</span>
+          </button>
+          <button id="snapshot-alpha" class="button" type="button" hidden>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path d="M4 4h4v4H4zM12 4h4v4h-4zM8 8h4v4H8zM16 8h4v4h-4zM4 12h4v4H4zM12 12h4v4h-4zM8 16h4v4H8zM16 16h4v4h-4z"
+                fill="currentColor" opacity="0.7" />
+            </svg>
+            <span>Save as png (no bg)</span>
           </button>
           <p id="stats"></p>
         </div>
