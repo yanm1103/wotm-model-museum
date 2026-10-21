@@ -17,6 +17,7 @@ const FOVY = 30;
 const canvas = document.getElementById("scene");
 const backdrop = document.getElementById("backdrop");
 const selMonster = document.getElementById("monster");
+const selAnim = document.getElementById("anim");
 const stageGrid = document.getElementById("stage-grid");
 const showMesh = document.getElementById("show-mesh");
 const showWire = document.getElementById("show-wire");
@@ -89,7 +90,7 @@ controls.dampingFactor = 0.1;
 
 const gltfLoader = new GLTFLoader();
 let lastTime = performance.now();
-let current = null; // { root, mixer }
+let current = null; // { root, mixer, bones, action, frames, file, idle, anims }
 let request = 0;
 
 // ---- visitor preferences (convenience only; the page works without them)
@@ -382,6 +383,8 @@ async function setMonster(file) {
 
   // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
   if (current) current.root.visible = current.bones.visible = false;
+  player.hidden = true;
+  selAnim.disabled = true;
   download.hidden = true;
   snapshot.hidden = snapshotAlpha.hidden = true;
   stats.textContent = "";
@@ -427,10 +430,8 @@ async function setMonster(file) {
 
   const mixer = new THREE.AnimationMixer(root);
   const clip = gltf.animations.find((a) => a.name === "idle") ?? gltf.animations[0];
-  if (clip) {
-    mixer.clipAction(clip).play();
-    frame(root, mixer, clip, mon?.zoom ?? 1);
-  }
+  const action = clip ? mixer.clipAction(clip).play() : null;
+  if (clip) frame(root, mixer, clip, mon?.zoom ?? 1);
 
   if (current) {
     scene.remove(current.root, current.bones);
@@ -440,8 +441,10 @@ async function setMonster(file) {
   }
   const bones = makeBones(root);
   scene.add(root, bones);
-  current = { root, mixer, bones };
+  current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip };
   applyLayers();
+  setupPlayer();
+  fillAnims(root.userData.animations ?? []);
   const n = (x) => `<strong>${x.toLocaleString("en-US")}</strong>`;
   stats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
   download.href = url;
@@ -560,6 +563,156 @@ function showLight(light, preset) {
 selLight.addEventListener("change", () => showLight(LIGHT_PRESETS[selLight.value], selLight.value));
 for (const s of Object.values(sliders)) s.input.addEventListener("input", () => showLight(lightFromSliders(), "custom"));
 
+// ---- animation list. The model file carries the idle and the list ({ k, id, frames, file }); each other animation is its own
+// small .glb (only node names and the keys), downloaded when picked and played on the model, which finds each node by name.
+// k is the index in the game's table: ids repeat (Togera has two animation 0s), k does not.
+const IDLE_ID = 90;
+const clipCache = new Map(); // url -> AnimationClip
+let animRequest = 0;
+
+function animLabel(a, list) {
+  if (a.id === IDLE_ID) return `Idle (${a.frames - 1} frames)`;
+  const same = list.filter((b) => b.id === a.id);
+  const n = same.length > 1 ? ` #${same.indexOf(a) + 1}` : "";
+  return `Animation ${a.id}${n} (${a.frames - 1} frames)`;
+}
+
+function fillAnims(list) {
+  current.anims = list;
+  selAnim.replaceChildren();
+  // idle first, then by game id
+  const sorted = [...list].sort((a, b) => (b.id === IDLE_ID) - (a.id === IDLE_ID) || a.id - b.id || a.k - b.k);
+  for (const a of sorted) {
+    const op = document.createElement("option");
+    op.value = a.k;
+    op.textContent = animLabel(a, list);
+    selAnim.append(op);
+  }
+  if (!list.length) {
+    const op = document.createElement("option");
+    op.textContent = current.idle ? "Idle" : "None";
+    selAnim.append(op);
+    return;
+  }
+  selAnim.disabled = false;
+  const idle = list.find((a) => a.id === IDLE_ID) ?? list[0];
+  selAnim.value = idle.k;
+  // keep the visitor's animation when changing costume (all costumes share the list)
+  const wanted = list.find((a) => String(a.k) === recall("anim"));
+  if (wanted && wanted !== idle) {
+    selAnim.value = wanted.k;
+    setAnim(wanted);
+  }
+}
+
+async function setAnim(a) {
+  const mine = ++animRequest;
+  const owner = current;
+  remember("anim", a.k);
+  let clip = a.id === IDLE_ID && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
+  if (!clip) {
+    status.textContent = `Loading ${animLabel(a, owner.anims)}…`;
+    const url = `${BASE}models/${a.file}`;
+    try {
+      const g = await gltfLoader.loadAsync(url);
+      clip = g.animations[0];
+      clipCache.set(url, clip);
+    } catch (e) {
+      console.error(e);
+      if (mine === animRequest) status.textContent = `Could not load ${a.file}`;
+      return;
+    }
+    if (mine === animRequest) status.textContent = "";
+  }
+  if (mine !== animRequest || owner !== current) return;
+  const action = owner.mixer.clipAction(clip);
+  if (owner.action !== action) {
+    owner.action?.stop();
+    action.reset().play();
+  }
+  owner.action = action;
+  owner.frames = Math.round(clip.duration * FPS);
+  setupPlayer();
+}
+
+selAnim.addEventListener("change", () => {
+  const a = current?.anims?.find((x) => String(x.k) === selAnim.value);
+  if (a) setAnim(a);
+});
+
+// ---- animation player. The exporter samples every animation at 60 frames per second, so frame n is at time n / 60.
+const FPS = 60;
+const player = document.getElementById("player");
+const playButton = document.getElementById("play");
+const prevFrame = document.getElementById("prev-frame");
+const nextFrame = document.getElementById("next-frame");
+const frameSlider = document.getElementById("frame");
+const frameLabel = document.getElementById("frame-label");
+let playing = true;
+let shownFrame = -1;
+
+function currentFrame() {
+  return Math.min(Math.round(current.action.time * FPS), current.frames);
+}
+
+function showFrame() {
+  if (!current?.action) return;
+  const f = currentFrame();
+  if (f === shownFrame) return;
+  shownFrame = f;
+  frameSlider.value = f;
+  frameLabel.innerHTML = `<strong>${f}</strong> / ${current.frames}`;
+}
+
+function setPlaying(on) {
+  playing = on;
+  player.classList.toggle("paused", !on);
+  playButton.setAttribute("aria-label", on ? "Pause" : "Play");
+  playButton.title = on ? "Pause (space)" : "Play (space)";
+}
+
+function seek(f) {
+  if (!current?.action) return;
+  const n = current.frames + 1; // frames 0..frames, wrapping around
+  f = ((f % n) + n) % n;
+  current.action.time = f / FPS;
+  current.mixer.update(0); // apply the pose without moving time
+  showFrame();
+}
+
+function setupPlayer() {
+  shownFrame = -1;
+  if (!current.action || current.frames < 1) return;
+  frameSlider.max = current.frames;
+  seek(0);
+  player.hidden = false;
+}
+
+function step(delta) {
+  setPlaying(false);
+  seek(currentFrame() + delta);
+}
+
+playButton.addEventListener("click", () => setPlaying(!playing));
+prevFrame.addEventListener("click", () => step(-1));
+nextFrame.addEventListener("click", () => step(1));
+// dragging the slider pauses on the picked frame
+frameSlider.addEventListener("input", () => {
+  setPlaying(false);
+  seek(Number(frameSlider.value));
+});
+
+// keyboard: space = play/pause, arrows = one frame (when no form control has focus, so they keep their own keys)
+window.addEventListener("keydown", (e) => {
+  if (player.hidden || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (e.target.closest?.("input, select, textarea, button, summary, a")) return;
+  if (e.key === " ") setPlaying(!playing);
+  else if (e.key === "ArrowLeft") step(-1);
+  else if (e.key === "ArrowRight") step(1);
+  else return;
+  e.preventDefault();
+});
+
 // ---- loop
 function resize() {
   const w = canvas.clientWidth;
@@ -581,7 +734,10 @@ function resize() {
 renderer.setAnimationLoop(() => {
   resize();
   const now = performance.now();
-  current?.mixer.update(Math.min((now - lastTime) / 1000, 0.1)); // background tab: don't skip the whole animation
+  if (playing && current) {
+    current.mixer.update(Math.min((now - lastTime) / 1000, 0.1)); // background tab: don't skip the whole animation
+    showFrame();
+  }
   lastTime = now;
   if (current?.bones.visible) {
     current.root.updateMatrixWorld();

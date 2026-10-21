@@ -455,3 +455,83 @@ footer {
   text-shadow: 0 1px 2px #000;
   pointer-events: none;
 }
+
+/* ---- animation player: floating bar at the bottom, above the footer */
+#player {
+  position: fixed;
+  left: 50%;
+  bottom: 32px;
+  transform: translateX(-50%);
+  width: min(560px, calc(100vw - 32px));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 6px 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  backdrop-filter: blur(6px);
+}
+
+.icon-button {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.icon-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.icon-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.icon-button.play {
+  color: #16131b;
+  background: var(--accent);
+}
+
+.icon-button.play:hover {
+  background: #f5b54f;
+}
+
+/* playing: show the pause icon; paused: the play icon */
+#player .icon-play,
+#player.paused .icon-pause {
+  display: none;
+}
+
+#player.paused .icon-play {
+  display: block;
+}
+
+#player input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  margin: 0 6px;
+  cursor: pointer;
+}
+
+#frame-label {
+  flex: none;
+  min-width: 7.5ch;
+  text-align: right;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+#frame-label strong {
+  color: var(--text);
+  font-weight: 600;
+}

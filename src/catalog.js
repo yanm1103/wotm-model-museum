@@ -1,7 +1,8 @@
-// What the site shows. Each exported costume is public/models/<PREFIX><costume>.glb (WoTM/tools/monglb.py).
+// What the site shows. Each exported costume is public/models/<PREFIX><costume>.glb (mesh, skeleton, idle and the list of
+// animations) plus public/models/<PREFIX><costume>/aNNN.glb, one per animation (WoTM/tools/monglb.py --all --split).
 // zoom: camera dolly per monster (Togera's tail and Raptros' wings make the box wide), as in the game port's save list.
 export const MONSTERS = [
-  { prefix: "LIZARD", name: "Togera", costumes: [0], zoom: 1.35 },
+  { prefix: "LIZARD", name: "Togera", costumes: [0, 1, 2, 3], zoom: 1.35 },
 ];
 
 // Stage pictures from the game menu (WoTM/tools/shellpics.py), in game order

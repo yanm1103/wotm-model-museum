@@ -19,16 +19,27 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   paint, loading at 30% with the `.glb` still downloading, zoom, loaded), 05-06 Custom color, 07 the images Save image wrote.
 - **Checked:** the `.glb` passes the official glTF validator (0 errors, 0 warnings) and, evaluated as glTF specifies, matches
   `pose.py` vertex by vertex at frames 0, 37 and 100 (max difference 0.008 units, from rounding residue in the encoded weights).
-- **Size:** `LIZARD0.glb` is 316 KB: mesh 135 KB, texture 81 KB, idle animation 77 KB (161 frames), JSON 21 KB. Togera has 153
-  animations (8,149 frames), about 4 MB per costume at this rate: step 2 matters.
+- **Togera complete (step 2 done for it):** 4 costumes, all 153 animations. Each `LIZARDn.glb` (245-280 KB) carries mesh,
+  skeleton, the idle and the list of animations (scene `extras.animations`: `{k, id, frames, file}`); each other animation is
+  `LIZARD/aNNN.glb` (only node names and keys), downloaded when picked. The four costumes give byte-identical animation files,
+  so they share one folder: 3.3 MB for all 153 (2.8 MB gzipped), against ~13 MB sampled raw. Size cuts: keys that linear
+  interpolation rebuilds within tolerance are dropped (142k of 823k kept; translation 0.01 units, rotation 5e-4 per quaternion
+  component), constant tracks equal to the rest pose are left out (three.js restores a node when the previous animation stops),
+  one bufferView per file, rotations as normalized int16. All 157 files pass the glTF validator (0 errors, 0 warnings).
+- **Animations are identified by k** (index in the game's table), not by id: ids repeat (Togera has two animation 0s). The
+  select shows "Idle" first, then "Animation <id>" sorted by id ("#1/#2" for repeated ids). No names yet: the decomp's
+  `MonsterAnim` enum is still unnamed.
+- **Player:** bar at the bottom with previous frame / play-pause / next frame, a frame slider (one step = one frame at 60/s) and
+  "frame / total"; space and the arrow keys do the same. Paused, "Save as png" saves the chosen frame. The picked animation is
+  kept when changing costume.
 - **Front end:** Vite + plain JavaScript + three.js (no UI framework). `npm install`, `npm run dev` (development),
   `npm run build` (writes `dist/`, static, with relative paths for any host).
 - **Generating the files** (from `WoTM`, with the user's own disc in `disc/`):
-  - `python tools/monglb.py disc/MON/LIZARD0.NGP ../wotm-model-museum/public/models/LIZARD0.glb` (`--anims 90,0` for more
-    animations); then one line in `src/catalog.js`.
+  - `python tools/monglb.py disc/MON/LIZARD0.NGP ../wotm-model-museum/public/models/LIZARD0.glb --all --split --anim-dir LIZARD`
+    for each costume (about 2.5 min each; they can run in parallel); then one line in `src/catalog.js`.
   - `python tools/shellpics.py disc/SHELL ../wotm-model-museum/public` (11 stage pictures in `stages/` and 10 logos in
     `logos/`, from `SHELL.TEX/.RTX`).
-- **Next:** the other monsters and costumes; animation select with play/pause (step 3); bones (step 4).
+- **Next:** the other 10 monsters, same command; animation names when the decomp names them.
 
 ## Keeping this repo apart from the decomp
 - **This repo is separate from `WoTM` on purpose.** The extracted models belong to Sony; sites like this (Models-Resource) live
