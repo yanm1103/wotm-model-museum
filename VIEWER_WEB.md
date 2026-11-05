@@ -11,7 +11,8 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   game port renderer's light (ambient 0.7 + directional 0.6, attached to the camera). The controls live in a drawer on the
   left that collapses to a small arrow button (starts closed on phones; state remembered per visitor). Backgrounds are picked
   from a thumbnail grid (128x64 thumbnails in `stages/thumbs/`, 24 KB each); the last tile, "Custom", is a solid color from
-  a color picker. A button downloads the current `.glb`, and "Save image (.png)" saves what is on screen (background +
+  a color picker. A button downloads the current `.glb` with every animation (built on click by
+  `src/glbmerge.js`: the costume's file plus each `aNNN.glb` in its list, clips keep the exporter's names: `idle`, `anim<id>_k<k>`), and "Save image (.png)" saves what is on screen (background +
   monster, at the canvas size). While a model downloads, a spinner with progress takes its place (shown from the first
   paint, before the script arrives).
 - **Slow networks** (production build, emulated in Edge): Slow 3G, spinner at 4.6 s and Togera at 24 s; 2G (250 kbit/s,
@@ -82,6 +83,32 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
     `MON/FINAL0`. The separate 0x27A8 piece (one object) is left out: nothing in the decomp shows what it is yet.
   - `monglb.py --boss plant|root|mecha` (level `.NGP` as input); keys are 100 * piece + index, `extras.animations` entries
     carry `part` and `first` (the animation the base file starts in, since bosses have no idle 90).
+- **New layout (2026-11-05), copied from the GrandChase model viewer** (`grandchase/tools/visualizador`, same colors, chips
+  and buttons): header (Ko-fi, showcase, save picture), an icon rail on each side and a footer. The left rail opens a drawer
+  with what to show: Monsters (logo tiles, the bosses by name, costume chips on top) and Animations (a list with the frame
+  count; the plant's pieces as groups). The right rail opens a panel with sections: Model (mesh / wireframe / bones, download),
+  Scene (background tiles, floor grid), Lighting, Picture and video, About (keys, credits). This replaces the selects and the
+  single collapsible drawer. The player is the GrandChase bar at the bottom of the stage (speed as chips, hides to a small
+  arrow). Phones (`max-width: 760px`, or a coarse pointer under 520 px tall): the rails become one bar at the bottom, the
+  open drawer a sheet between the stage and that bar (one at a time), its height changed by dragging its top and remembered;
+  lying down, the sheet goes to the right of the stage.
+- **Floor grid (2026-11-05):** Blender-style grid on the game's ground (y = 0): thin lines every 10 units, thick every 100, X
+  axis red and Z axis green, fading out at about three times the monster's size. On by default; G or Scene > Floor turns it
+  off. Left out of the transparent picture, kept in the normal picture and the video (what is on screen).
+- **Shading (2026-11-05):** the page used flat shading (one normal per triangle), which showed every face (Kineticlops' eye
+  most of all). The game port lights per vertex with the game's own normals (`0.7 + 0.6 * max(0, n.L)`), and every `.glb`
+  carries them (no zero normal in any file). Lighting > Shading now picks Smooth (those normals, the default, like the game;
+  per pixel here) or Flat (the old look); F switches, remembered per visitor.
+  - **Winding:** in 47% of the triangles (all files; 31-56% per file) the vertex order is the opposite of the vertex
+    normals (PS2 strips), so winding says nothing about the front; hence every material is double-sided. three.js flips the
+    normal of a triangle it sees from the back, which lit about half the faces from the wrong side in Smooth. The page takes
+    that flip out of the shader (`keepGameNormals` in `main.js`), using the normal as it is, like the game port. Fixing the
+    winding in `monglb.py` would also work, but means exporting every file again.
+- **Surface views (2026-11-05):** Model > Surface shows Texture (the game's look), Normals (view space: red = right,
+  green = up, blue = toward the camera) or Vertex colors (`COLOR_0` alone); V switches. Parts cut out by the alpha test keep
+  their shape; fire and flares only show with Texture. The files hold no other map: one color texture (`baseColorTexture`,
+  PNG) per part, no normal map; per vertex: position, normal, vertex color, UV and, on skinned parts, joints and weights.
+  Vertex colors vary on some monsters (Kineticlops 147 distinct, Robo-47 23) and are flat gray on others (Togera one color).
 - **Next:** animation names when the decomp names them.
 
 ## Keeping this repo apart from the decomp

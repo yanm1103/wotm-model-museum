@@ -3,6 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MONSTERS, STAGES } from "./catalog.js";
 import { applyGs, Background, Effects, UvScroll } from "./effects.js";
+import { mergeGlb } from "./glbmerge.js";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -15,21 +16,17 @@ const YAW = THREE.MathUtils.degToRad(35);
 const PITCH = THREE.MathUtils.degToRad(8);
 const FOVY = 30;
 
-const canvas = document.getElementById("scene");
-const selMonster = document.getElementById("monster");
-const selAnim = document.getElementById("anim");
-const stageGrid = document.getElementById("stage-grid");
-const showMesh = document.getElementById("show-mesh");
-const showWire = document.getElementById("show-wire");
-const showBones = document.getElementById("show-bones");
-const selLight = document.getElementById("light");
-const logo = document.getElementById("logo");
-const stats = document.getElementById("stats");
-const status = document.getElementById("status");
-const download = document.getElementById("download");
-const downloadLabel = document.getElementById("download-label");
-const loadingBox = document.getElementById("loader");
-const loadingText = document.getElementById("loader-text");
+const $ = (id) => document.getElementById(id);
+const canvas = $("scene");
+const stageList = $("stage-list");
+const selLight = $("light");
+const stats = $("info");
+const modelStats = $("model-stats");
+const status = $("notice");
+const download = $("download");
+const downloadLabel = $("download-label");
+const loadingBox = $("loader");
+const loadingText = $("loader-text");
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // BASE_PIXEL_RATIO (bigger while saving a big picture)
@@ -44,6 +41,52 @@ const overlayCamera = new THREE.OrthographicCamera(0, 1, 0, 1, -1, 1);
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(FOVY, 1, 1, 10000);
 scene.add(camera);
+
+// Floor grid like Blender's (and the GrandChase viewer's), on the game's ground (y = 0, where the monsters stand): thin
+// lines every 10 game units, thick ones every 100, the X axis in red and the Z axis in green. It fades out away from the
+// center (radius set per monster in placeGrid), and the thin lines fade out when they get too close together on screen.
+const grid = new THREE.Mesh(
+  new THREE.PlaneGeometry(1, 1),
+  new THREE.ShaderMaterial({
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+    uniforms: { cell: { value: 10 }, fade: { value: new THREE.Vector2(100, 300) } },
+    vertexShader: `
+      varying vec3 vP;
+      void main() { vP = (modelMatrix * vec4(position, 1.0)).xyz; gl_Position = projectionMatrix * viewMatrix * vec4(vP, 1.0); }`,
+    fragmentShader: `
+      uniform float cell;
+      uniform vec2 fade;
+      varying vec3 vP;
+      float line(vec2 c) { vec2 g = abs(fract(c - 0.5) - 0.5) / fwidth(c); return 1.0 - min(min(g.x, g.y), 1.0); }
+      void main() {
+        vec2 c = vP.xz / cell;
+        vec2 d = fwidth(c);
+        float thin = line(c) * (1.0 - smoothstep(0.2, 0.5, max(d.x, d.y)));   // gone when the cells are a few pixels wide
+        float thick = line(c / 10.0);
+        float axisX = 1.0 - min(abs(c.y) / d.y, 1.0);   // the X axis (red), z = 0
+        float axisZ = 1.0 - min(abs(c.x) / d.x, 1.0);   // the Z axis (green), x = 0
+        vec3 color = vec3(0.55);
+        float a = max(thin * 0.35, thick * 0.6);
+        if (axisX > 0.0) { color = mix(color, vec3(0.9, 0.25, 0.3), axisX); a = max(a, axisX * 0.9); }
+        if (axisZ > 0.0) { color = mix(color, vec3(0.45, 0.75, 0.2), axisZ); a = max(a, axisZ * 0.9); }
+        a *= 1.0 - smoothstep(fade.x, fade.y, length(vP.xz));
+        if (a < 0.01) discard;
+        gl_FragColor = vec4(color, a);
+      }`,
+  }),
+);
+grid.rotation.x = -Math.PI / 2;
+grid.renderOrder = -1; // first among the see-through things: the monster's fire and wireframe go over it
+grid.frustumCulled = false;
+scene.add(grid);
+
+// size: the monster's framing box (largest side): the grid reaches about three times that around the center
+function placeGrid(size) {
+  grid.scale.set(size * 8, size * 8, 1);
+  grid.material.uniforms.fade.value.set(size * 0.9, size * 3);
+}
 
 // Lighting: ambient + one directional light attached to the camera (the game port derives it from the camera yaw too).
 // Intensities are the renderer's (color * (ambient + directional * max(0, n.L))); three.js Lambert divides by pi, hence * PI.
@@ -112,64 +155,135 @@ function recall(key) {
   }
 }
 
-// ---- selects: monster, then its costume (hidden when the monster has only one)
-const selCostume = document.getElementById("costume");
-const costumeRow = document.getElementById("costume-row");
+// scrolls only the drawer that holds `el` (not the page) so that `el` is in view
+function reveal(el) {
+  const box = el.closest(".scroll");
+  if (!box || box.offsetParent === null) return;
+  const b = box.getBoundingClientRect();
+  const r = el.getBoundingClientRect();
+  if (r.top < b.top) box.scrollTop -= b.top - r.top + 4;
+  else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 4;
+}
+
+// ---- monster list (tiles with the game's logo, or the name for the bosses), then its costumes (chips, hidden when the
+// monster has only one)
+const monsterList = $("monster-list");
+const costumeSection = $("costume-section");
+const costumeGroup = $("costumes");
 const filesOf = (m) => m.costumes.map((c) => `${m.prefix}${c}`);
+let monster = MONSTERS[0];
+let costume = filesOf(monster)[0]; // the file of the picked costume
 
 MONSTERS.forEach((m, i) => {
-  const op = document.createElement("option");
-  op.value = i;
-  op.textContent = m.name;
-  selMonster.append(op);
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "tile monster";
+  tile.title = m.name;
+  tile.dataset.i = i;
+  if (m.logo === false) {
+    tile.classList.add("text");
+    const name = document.createElement("span");
+    name.textContent = m.name;
+    tile.append(name);
+  } else {
+    const img = document.createElement("img");
+    img.src = `${BASE}logos/${m.prefix.toLowerCase()}.png`;
+    img.alt = m.name;
+    img.width = 256;
+    img.height = 128;
+    tile.append(img);
+  }
+  monsterList.append(tile);
 });
 
-// fills the costume select for the picked monster and selects `file` (or the first costume)
-function fillCostumes(m, file) {
-  selCostume.replaceChildren();
-  m.costumes.forEach((c, i) => {
-    const op = document.createElement("option");
-    op.value = `${m.prefix}${c}`;
-    op.textContent = m.labels?.[i] ?? `Costume ${c + 1}`;
-    selCostume.append(op);
-  });
-  costumeRow.hidden = m.costumes.length < 2;
-  selCostume.value = filesOf(m).includes(file) ? file : filesOf(m)[0];
+// a new monster keeps the costume position when it has one (third costume of Congar -> third of Togera)
+monsterList.addEventListener("click", (e) => {
+  const tile = e.target.closest(".tile");
+  if (tile) switchMonster(MONSTERS[Number(tile.dataset.i)]);
+});
+
+function switchMonster(m) {
+  const i = filesOf(monster).indexOf(costume);
+  pickMonster(filesOf(m)[i] ?? filesOf(m)[0]);
 }
 
-function pickMonster(file) {
-  const m = monsterOf(file) ?? MONSTERS[0];
-  selMonster.value = MONSTERS.indexOf(m);
-  fillCostumes(m, file);
-  setMonster(selCostume.value);
+// fills the costume chips for the picked monster and picks `file` (or the first costume)
+function fillCostumes(m, file) {
+  costumeGroup.replaceChildren();
+  costumeGroup.style.setProperty("--n", Math.min(m.costumes.length, 4));
+  m.costumes.forEach((c, i) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.dataset.file = `${m.prefix}${c}`;
+    chip.textContent = m.labels?.[i] ?? `Costume ${c + 1}`;
+    costumeGroup.append(chip);
+  });
+  costumeSection.hidden = m.costumes.length < 2;
+  costume = filesOf(m).includes(file) ? file : filesOf(m)[0];
 }
-// Background picker: one radio per stage, drawn as a thumbnail (small picture from stages/thumbs/, name below), plus a
-// "Custom" tile for a plain color of the visitor's choice
+
+function markMonster() {
+  for (const tile of monsterList.children) {
+    const on = MONSTERS[Number(tile.dataset.i)] === monster;
+    tile.classList.toggle("on", on);
+    tile.setAttribute("aria-pressed", String(on));
+  }
+  for (const chip of costumeGroup.children) {
+    const on = chip.dataset.file === costume;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+}
+
+function pickCostume(file) {
+  costume = file;
+  markMonster();
+  setMonster(file);
+}
+costumeGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) pickCostume(chip.dataset.file);
+});
+
+function pickMonster(file) {
+  monster = monsterOf(file) ?? MONSTERS[0];
+  fillCostumes(monster, file);
+  markMonster();
+  setMonster(costume);
+  reveal(monsterList.querySelector(".tile.on"));
+}
+
+// previous / next monster or costume (wrapping around), as if clicked
+function stepMonster(delta) {
+  const n = MONSTERS.length;
+  switchMonster(MONSTERS[(MONSTERS.indexOf(monster) + delta + n) % n]);
+}
+function stepCostume(delta) {
+  const files = filesOf(monster);
+  const n = files.length;
+  if (n > 1) pickCostume(files[(files.indexOf(costume) + delta + n) % n]);
+}
+
+// Background picker: one tile per stage (small picture from stages/thumbs/, name below), plus a "Custom" tile for a plain
+// color of the visitor's choice
 const CUSTOM = "custom";
 const DEFAULT_COLOR = "#2b2f3a";
-const colorRow = document.getElementById("color-row");
-const colorInput = document.getElementById("bg-color");
+const colorRow = $("color-row");
+const colorInput = $("bg-color");
 let customSwatch = null;
 
 for (const s of [...STAGES, { file: CUSTOM, name: "Custom" }]) {
-  const tile = document.createElement("label");
-  tile.className = "thumb";
+  const tile = document.createElement("button");
+  tile.type = "button";
+  tile.className = "tile";
   tile.title = s.name;
-  const radio = document.createElement("input");
-  radio.type = "radio";
-  radio.name = "stage";
-  radio.value = s.file;
+  tile.dataset.file = s.file;
   let pic;
   if (s.file === CUSTOM) {
     pic = document.createElement("div");
     pic.className = "swatch";
     customSwatch = pic;
-    // clicking the tile (even when already picked) opens the color picker
-    tile.addEventListener("click", () => {
-      try {
-        colorInput.showPicker?.();
-      } catch {}
-    });
   } else {
     pic = document.createElement("img");
     pic.src = `${BASE}stages/thumbs/${s.file}.png`;
@@ -180,9 +294,21 @@ for (const s of [...STAGES, { file: CUSTOM, name: "Custom" }]) {
   }
   const name = document.createElement("span");
   name.textContent = s.name;
-  tile.append(radio, pic, name);
-  stageGrid.append(tile);
+  tile.append(pic, name);
+  stageList.append(tile);
 }
+
+stageList.addEventListener("click", (e) => {
+  const tile = e.target.closest(".tile");
+  if (!tile) return;
+  setStage(tile.dataset.file);
+  // clicking the custom tile (even when already picked) opens the color picker
+  if (tile.dataset.file === CUSTOM) {
+    try {
+      colorInput.showPicker?.();
+    } catch {}
+  }
+});
 
 function monsterOf(file) {
   return MONSTERS.find((m) => filesOf(m).includes(file));
@@ -196,10 +322,25 @@ function setStage(file) {
   const custom = file === CUSTOM;
   background.setPicture(custom ? null : `${BASE}stages/${file}.png`).catch((e) => console.error(e));
   colorRow.hidden = !custom;
-  const radio = stageGrid.querySelector(`input[value="${file}"]`);
-  if (radio) radio.checked = true;
+  for (const tile of stageList.children) {
+    const on = tile.dataset.file === file;
+    tile.classList.toggle("on", on);
+    tile.setAttribute("aria-pressed", String(on));
+  }
   remember("stage", file);
 }
+
+// ---- floor grid on / off
+const gridGroup = $("grid-group");
+function setGrid(on) {
+  grid.visible = on;
+  for (const chip of gridGroup.children) chip.classList.toggle("on", (chip.dataset.v === "on") === on);
+  remember("grid", on ? "on" : "off");
+}
+gridGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setGrid(chip.dataset.v === "on");
+});
 
 function setColor(hex) {
   colorInput.value = hex;
@@ -214,6 +355,120 @@ function kb(bytes) {
 }
 
 // ---- monster
+// Shading. "smooth" uses the game's own vertex normals (in every .glb, none of them zero), blended across each face, the
+// way the game port lights the monsters (native/wotm_model.hpp: per vertex, 0.7 + 0.6 * max(0, n.L)); here it's per pixel,
+// which looks the same without the vertex steps. "flat" uses one normal per triangle, so every face shows (the site's
+// first look).
+let shading = recall("shading") === "flat" ? "flat" : "smooth";
+const flatShading = () => shading === "flat";
+const shadingGroup = $("shading-group");
+
+function setShading(mode) {
+  shading = mode;
+  for (const chip of shadingGroup.children) {
+    const on = chip.dataset.v === mode;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+  current?.root.traverse((o) => {
+    if (!o.isMesh || o.userData.wire) return;
+    for (const m of materialsOf(o)) {
+      m.flatShading = flatShading();
+      m.needsUpdate = true; // another shader program
+    }
+  });
+  remember("shading", mode);
+}
+shadingGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setShading(chip.dataset.v);
+});
+
+// Surface: what the solid mesh shows. "texture" is the game's look (makeMaterial); "normals" paints where each point
+// faces (view space: red = right, green = up, blue = toward the camera) and "colors" the vertex colors alone (COLOR_0, which
+// the game multiplies with the texture). The files have no other map: one color texture per part, nothing else. The two
+// views are made the first time they're needed and kept on the mesh (userData.views); userData.game is the game's material.
+const SURFACES = ["texture", "normals", "colors"];
+let surface = SURFACES.includes(recall("surface")) ? recall("surface") : "texture";
+const surfaceGroup = $("surface-group");
+
+// every material a solid mesh may wear
+function materialsOf(o) {
+  return [o.userData.game ?? o.material, ...Object.values(o.userData.views ?? {})];
+}
+
+// Parts cut out by the alpha test (leaves, spikes, hair cards) keep their shape in the views: the texture's alpha is
+// still read, only to drop the same pixels.
+function cutOut(shader, map, cut) {
+  shader.uniforms.cutMap = { value: map };
+  shader.uniforms.cut = { value: cut };
+  shader.fragmentShader =
+    "uniform sampler2D cutMap;\nuniform float cut;\n" +
+    shader.fragmentShader.replace("void main() {", "void main() {\n  if (texture2D(cutMap, vUv).a < cut) discard;");
+}
+
+function viewMaterial(o, mode) {
+  const views = (o.userData.views ??= {});
+  if (views[mode]) return views[mode];
+  const game = o.userData.game;
+  // opaque, and behind the wireframe like the game's material
+  const common = {
+    side: game.side,
+    polygonOffset: true,
+    polygonOffsetFactor: game.polygonOffsetFactor,
+    polygonOffsetUnits: game.polygonOffsetUnits,
+  };
+  const m =
+    mode === "normals"
+      ? new THREE.MeshNormalMaterial({ ...common, flatShading: flatShading() })
+      : new THREE.MeshBasicMaterial({ ...common, vertexColors: game.vertexColors });
+  const cut = !!game.map && game.alphaTest > 0;
+  if (cut) m.defines = { USE_UV: "" };
+  m.onBeforeCompile = (shader) => {
+    keepGameNormals(shader);
+    if (cut) cutOut(shader, game.map, game.alphaTest);
+  };
+  m.customProgramCacheKey = () => `view${cut ? "|cut" : ""}`;
+  views[mode] = m;
+  return m;
+}
+
+// puts the picked surface on every solid mesh of the monster on screen
+function applySurface() {
+  current?.root.traverse((o) => {
+    if (!o.isMesh || o.userData.wire) return;
+    const visible = o.material.visible;
+    o.material = surface === "texture" ? o.userData.game : viewMaterial(o, surface);
+    o.material.visible = visible;
+  });
+  applyLayers();
+}
+
+function setSurface(mode) {
+  surface = mode;
+  for (const chip of surfaceGroup.children) {
+    const on = chip.dataset.v === mode;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+  applySurface();
+  remember("surface", mode);
+}
+surfaceGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setSurface(chip.dataset.v);
+});
+
+// The game's triangles come from PS2 strips and their winding says nothing about which side is the front: in about half of
+// them (47% over all the files) it is the opposite of the vertex normals. That's why every material is double-sided. But
+// three.js turns the normal around on a triangle it sees from the back (by its winding), which lit half the faces from
+// the wrong side. The game port uses the normal as it is, and so does this: the flip is taken out of the shader. (Flat
+// shading doesn't read these normals: it takes one from the screen, always facing the camera.)
+const GAME_NORMALS = THREE.ShaderChunk.normal_fragment_begin.replace("normal *= faceDirection;", "");
+function keepGameNormals(shader) {
+  shader.fragmentShader = shader.fragmentShader.replace("#include <normal_fragment_begin>", GAME_NORMALS);
+}
+
 // Every solid sits a little behind (polygonOffset) so the wireframe lines win over it. The skinned body sits further back
 // than the rigid parts: a part laid exactly on the body (the red eye of Goliath Prime's early version) wins the tie, as it
 // does in the game, instead of fighting with the body (skinned on the GPU vs rigid: the two depths round differently).
@@ -230,10 +485,17 @@ function makeMaterial(original, skinned) {
     polygonOffset: true,
     polygonOffsetFactor: skinned ? 2 : 1,
     polygonOffsetUnits: skinned ? 2 : 1,
-    flatShading: true, // hard shading: one normal per triangle (the game's own normals are smoothed)
+    flatShading: flatShading(), // see setShading
   });
   if (m.map) m.map.colorSpace = THREE.NoColorSpace;
   applyGs(m, original.userData.gs); // the PS2 blend mode and alpha test (extras.gs from the exporter)
+  const gsCompile = m.onBeforeCompile;
+  const gsKey = m.customProgramCacheKey.bind(m);
+  m.onBeforeCompile = (shader, r) => {
+    gsCompile.call(m, shader, r);
+    keepGameNormals(shader);
+  };
+  m.customProgramCacheKey = () => `${gsKey()}|gameNormals`;
   m.name = original.name;
   original.dispose();
   return m;
@@ -243,7 +505,7 @@ function dispose(obj) {
   obj.traverse((o) => {
     if (!o.isMesh) return;
     o.geometry.dispose();
-    for (const m of [o.material].flat()) {
+    for (const m of o.userData.wire ? [o.material] : materialsOf(o)) {
       if (m === wireMaterial) continue; // shared between monsters
       m.map?.dispose();
       m.dispose();
@@ -334,9 +596,26 @@ function disposeBones(bones) {
   }
 }
 
+// what to draw: mesh / wireframe / bones, each one a chip that turns on and off on its own
+const layerChips = { mesh: $("show-mesh"), wire: $("show-wire"), bones: $("show-bones") };
+const layerState = { mesh: true, wire: false, bones: false };
+
 function layers() {
-  return { mesh: showMesh.checked, wire: showWire.checked, bones: showBones.checked };
+  return { ...layerState };
 }
+
+function setLayer(key, on) {
+  layerState[key] = on;
+  layerChips[key].classList.toggle("on", on);
+  layerChips[key].setAttribute("aria-pressed", String(on));
+}
+
+function toggleLayer(key) {
+  setLayer(key, !layerState[key]);
+  applyLayers();
+  remember("layers", JSON.stringify(layers()));
+}
+for (const [key, chip] of Object.entries(layerChips)) chip.addEventListener("click", () => toggleLayer(key));
 
 function applyLayers() {
   const l = layers();
@@ -346,10 +625,11 @@ function applyLayers() {
     if (!o.isMesh) return;
     // material.visible (not o.visible) hides the solid mesh without hiding the wireframe, which is its child
     if (o.userData.wire) o.visible = l.wire;
-    else o.material.visible = l.mesh;
+    else for (const m of materialsOf(o)) m.visible = l.mesh;
   });
   current.bones.visible = l.bones && current.root.visible;
-  current.effects.visible = l.mesh && current.root.visible; // fire and flares go with the solid mesh
+  // fire and flares go with the solid mesh, and only with the game's look
+  current.effects.visible = l.mesh && surface === "texture" && current.root.visible;
 }
 
 
@@ -390,7 +670,8 @@ function frame(root, mixer, clip, zoom, effects) {
   mixer.setTime(0);
   const center = box.getCenter(new THREE.Vector3());
   const side = Math.max(...box.getSize(new THREE.Vector3()).toArray(), 1e-3);
-  baseDist = (side * 0.62) / Math.tan(THREE.MathUtils.degToRad(FOVY / 2)) / zoom;
+  placeGrid(side);
+  baseDist =(side * 0.62) / Math.tan(THREE.MathUtils.degToRad(FOVY / 2)) / zoom;
   const dist = baseDist * slack();
 
   // game: camera at c + (sin yaw cos pitch, cos yaw cos pitch, sin pitch) * dist, Z up; here Y up (x, z, -y)
@@ -406,35 +687,29 @@ async function setMonster(file) {
   const label = mon?.name ?? file;
   const url = `${BASE}models/${file}.glb`;
   status.textContent = "";
-  logo.hidden = true;
-  if (mon) {
-    logo.src = `${BASE}logos/${mon.prefix.toLowerCase()}.png`;
-    logo.alt = mon.name;
-    logo.onload = () => (logo.hidden = false);
-  }
   remember("monster", file);
 
   // paused: the next costume opens on the same frame of the same animation
-  const shown = current?.anims?.find((x) => String(x.k) === selAnim.value);
+  const shown = current?.anims?.find((x) => x.k === animK);
   keepFrame = !playing && current?.action && shown ? { key: animKey(shown, current), frame: currentFrame() } : null;
 
   // the spinner takes the monster's place until the new one is ready (shown after a moment, so a cached file doesn't flash)
   if (current) current.root.visible = current.bones.visible = current.effects.visible = false;
   player.hidden = true;
-  selAnim.disabled = true;
+  animsReady = false;
+  animSorted = [];
+  renderAnims();
   download.hidden = true;
-  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = recordButton.hidden = true;
+  setSaveButtons(false);
   stopRecording(false);
-  stats.textContent = "";
+  stats.textContent = modelStats.textContent = "";
   loadingText.textContent = `Loading ${label}…`;
   const spinnerTimer = setTimeout(() => (loadingBox.hidden = false), 150);
-  let bytes = 0;
 
   let gltf;
   try {
     gltf = await gltfLoader.loadAsync(url, (e) => {
       if (mine !== request) return;
-      bytes = e.total || e.loaded;
       loadingText.textContent = e.total
         ? `Loading ${label}… ${Math.floor((100 * e.loaded) / e.total)}% (${kb(e.loaded)} of ${kb(e.total)})`
         : `Loading ${label}… ${kb(e.loaded)}`;
@@ -460,7 +735,7 @@ async function setMonster(file) {
   const root = gltf.scene;
   root.traverse((o) => {
     if (o.isMesh) {
-      o.material = makeMaterial(o.material, o.isSkinnedMesh);
+      o.material = o.userData.game = makeMaterial(o.material, o.isSkinnedMesh);
       o.frustumCulled = false; // the skinned mesh's bounding box is the rest pose's
     }
   });
@@ -496,41 +771,123 @@ async function setMonster(file) {
   for (const o of effects.overlayObjects) overlay.add(o);
   const uv = new UvScroll(root);
   current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip, effects, uv };
-  applyLayers();
+  applySurface();
   setupPlayer();
   fillAnims(root.userData.animations ?? []);
   syncAnimNav();
-  const n = (x) => `<strong>${x.toLocaleString("en-US")}</strong>`;
-  stats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
-  download.href = url;
-  download.download = `${label.replace(/[^\w-]+/g, "_")}_${file}.glb`;
-  downloadLabel.textContent = bytes ? `Download model (.glb) ${kb(bytes)}` : "Download model (.glb)";
-  download.hidden = false;
-  snapshot.hidden = snapshotAlpha.hidden = imageSize.hidden = false;
-  recordButton.hidden = !canRecord;
+  const n = (x) => `<b>${x.toLocaleString("en-US")}</b>`;
+  stats.innerHTML = modelStats.innerHTML = `${n(countTriangles(root))} triangles · ${n(bones.userData.lines.bones.length)} bones`;
+  showDownload();
+  setSaveButtons(true);
 }
 
+// ---- download. The costume's .glb has only one animation (the others are downloaded when picked), so the button builds
+// the file on click: the costume's .glb plus every animation in its list (glbmerge.js), with the exporter's clip names.
+let downloadBusy = false;
+
+function showDownload() {
+  const n = current.anims.length || 1;
+  downloadLabel.textContent = `Download model (.glb), ${n} animation${n === 1 ? "" : "s"}`;
+  download.hidden = false;
+}
+
+async function fetchBuffer(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${url}: ${r.status}`);
+  return r.arrayBuffer();
+}
+
+download.addEventListener("click", async (e) => {
+  e.preventDefault();
+  if (downloadBusy || !current) return;
+  downloadBusy = true;
+  const owner = current;
+  const mon = monsterOf(owner.file);
+  const name = `${(mon?.name ?? owner.file).replace(/[^\w-]+/g, "_")}_${owner.file}.glb`;
+  const list = owner.anims;
+  const own = list.find((a) => isIdle(a, list)); // the animation the costume's .glb already has
+  const others = animSorted.filter((a) => a !== own);
+  const text = downloadLabel.textContent;
+  const progress = (done) => (downloadLabel.textContent = `Preparing… ${done} of ${others.length} animations`);
+  try {
+    progress(0);
+    const base = await fetchBuffer(`${BASE}models/${owner.file}.glb`);
+    const buffers = new Array(others.length);
+    let next = 0;
+    let done = 0;
+    const worker = async () => {
+      while (next < others.length) {
+        const i = next++;
+        buffers[i] = await fetchBuffer(`${BASE}models/${others[i].file}`);
+        progress(++done);
+      }
+    };
+    await Promise.all(Array.from({ length: 6 }, worker));
+    if (owner !== current) return; // another monster was picked meanwhile
+    const glb = mergeGlb(base, buffers);
+    const url = URL.createObjectURL(new Blob([glb], { type: "model/gltf-binary" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (err) {
+    console.error(err);
+    if (owner === current) status.textContent = "Could not prepare the download";
+  } finally {
+    downloadBusy = false;
+    if (owner === current) downloadLabel.textContent = text;
+  }
+});
+
 // ---- save the picture the visitor composed: background (stage picture or color) + the 3D view, at screen resolution
-const snapshot = document.getElementById("snapshot");
-const snapshotAlpha = document.getElementById("snapshot-alpha");
-const imageSize = document.getElementById("image-size");
-const sizeInputs = [...imageSize.querySelectorAll("input")];
+const snapshot = $("snapshot");
+const snapshotTop = $("snapshot-top");
+const snapshotAlpha = $("snapshot-alpha");
+const imageSize = $("image-size");
+const imageSizeText = $("image-size-text");
+const sizeChips = [...imageSize.querySelectorAll(".chip")];
+let pictureScale = 1;
+
+// the buttons that need a monster on screen (off while one is loading)
+function setSaveButtons(on) {
+  snapshot.disabled = snapshotTop.disabled = snapshotAlpha.disabled = !on;
+  recordButton.disabled = !on || !canRecord;
+}
+
+function setPictureScale(k) {
+  pictureScale = k;
+  for (const chip of sizeChips) {
+    const on = Number(chip.dataset.v) === k;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-checked", String(on));
+  }
+  syncImageSizes();
+}
+imageSize.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip && !chip.disabled) setPictureScale(Number(chip.dataset.v));
+});
 // Bigger pictures are drawn at a higher pixel ratio: the stage picture, the effects and the bones' dots all scale with
 // it, so the picture is the same as on screen, only sharper. Capped by what the graphics card can draw (and at 8192 px,
 // past which the browser may run out of memory reading it back).
 const BASE_PIXEL_RATIO = Math.min(window.devicePixelRatio, 2);
 const MAX_PICTURE = Math.min(renderer.getContext().getParameter(renderer.getContext().MAX_RENDERBUFFER_SIZE), 8192);
 
-// the sizes in pixels in the tooltips; sizes too big for this screen are turned off
+// the sizes in pixels in the tooltips (and the picked one under the chips); sizes too big for this screen are turned off
 function syncImageSizes() {
   const w = canvas.width;
   const h = canvas.height;
-  for (const input of sizeInputs) {
-    const k = Number(input.value);
-    input.disabled = Math.max(w, h) * k > MAX_PICTURE;
-    input.parentElement.title = input.disabled ? "Too big for this device" : `${w * k} × ${h * k} px`;
+  for (const chip of sizeChips) {
+    const k = Number(chip.dataset.v);
+    chip.disabled = Math.max(w, h) * k > MAX_PICTURE;
+    chip.title = chip.disabled ? "Too big for this device" : `${w * k} × ${h * k} px`;
   }
-  if (sizeInputs.find((i) => i.checked)?.disabled) sizeInputs[0].checked = true;
+  if (sizeChips.find((c) => Number(c.dataset.v) === pictureScale)?.disabled) {
+    setPictureScale(1);
+    return;
+  }
+  imageSizeText.textContent = `${w * pictureScale} × ${h * pictureScale} px, the view on screen × ${pictureScale}.`;
 }
 
 function slug(s) {
@@ -592,8 +949,8 @@ function matte(w, h) {
 }
 
 async function saveImage(transparent) {
-  const k = Number(sizeInputs.find((i) => i.checked)?.value ?? 1);
-  const who = slug(monsterOf(selCostume.value)?.name ?? "monster"); // named when clicked, not when the file is ready
+  const k = pictureScale;
+  const who = slug(monster.name); // named when clicked, not when the file is ready
   let bgName = "custom";
   if (transparent) bgName = "transparent"; // nothing behind the monster: the PNG keeps the 3D view's alpha
   else if (stage !== CUSTOM) bgName = STAGES.find((s) => s.file === stage)?.name ?? stage;
@@ -604,7 +961,9 @@ async function saveImage(transparent) {
   // the WebGL canvas is only readable right after a render, in the same task: resize, render, copy, then back to the
   // screen's size, all at once (the next frame redraws the screen)
   let out;
+  const gridShown = grid.visible;
   try {
+    if (transparent) grid.visible = false; // only the monster in a picture with no background
     if (k > 1) renderer.setPixelRatio(BASE_PIXEL_RATIO * k);
     const w = canvas.width;
     const h = canvas.height;
@@ -618,6 +977,7 @@ async function saveImage(transparent) {
       out.getContext("2d").drawImage(canvas, 0, 0);
     }
   } finally {
+    grid.visible = gridShown;
     if (k > 1) renderer.setPixelRatio(BASE_PIXEL_RATIO);
   }
   const blob = await new Promise((r) => out.toBlob(r, "image/png"));
@@ -631,6 +991,7 @@ async function saveImage(transparent) {
 
 for (const [button, transparent] of [
   [snapshot, false],
+  [snapshotTop, false],
   [snapshotAlpha, true],
 ]) {
   button.addEventListener("click", () => {
@@ -644,19 +1005,20 @@ for (const [button, transparent] of [
 // ---- video: the canvas is recorded live while the animation plays once from its first frame, at the chosen speed (the
 // visitor can still turn the camera while it records). MP4 where the browser can make it (what most sites accept),
 // WebM otherwise.
-const recordButton = document.getElementById("record");
-const recordLabel = document.getElementById("record-label");
+const recordButton = $("record");
+const recordLabel = $("record-label");
 const VIDEO_TYPE = ["video/mp4;codecs=avc1.640028", "video/mp4", "video/webm;codecs=vp9", "video/webm"].find(
   (t) => window.MediaRecorder?.isTypeSupported(t),
 );
 const canRecord = !!VIDEO_TYPE && !!canvas.captureStream;
+$("video-section").hidden = !canRecord;
 const MAX_VIDEO_SECONDS = 120;
 let recording = null; // { recorder, chunks, name, start, last, keep }
 
 function startRecording() {
   if (!current?.action || recording) return;
-  const who = slug(monsterOf(selCostume.value)?.name ?? "monster");
-  const what = slug(selAnim.selectedOptions[0]?.textContent.replace(/\(.*\)/, "") ?? "animation");
+  const who = slug(monster.name);
+  const what = slug(animNameText().replace(/\(.*\)/, "") || "animation");
   const recorder = new MediaRecorder(canvas.captureStream(60), { mimeType: VIDEO_TYPE, videoBitsPerSecond: 12e6 });
   const rec = { recorder, chunks: [], name: `${who}_${what}`, start: performance.now(), last: 0, keep: true };
   recording = rec;
@@ -704,43 +1066,116 @@ function checkRecording() {
 
 recordButton.addEventListener("click", () => (recording ? stopRecording(true) : startRecording()));
 
-// a new monster keeps the costume position when it has one (third costume of Congar -> third of Togera)
-selMonster.addEventListener("change", () => {
-  const m = MONSTERS[Number(selMonster.value)];
-  const old = monsterOf(selCostume.value);
-  const i = old ? filesOf(old).indexOf(selCostume.value) : 0;
-  pickMonster(filesOf(m)[i] ?? filesOf(m)[0]);
+// ---- drawers. The left rail opens the drawer with what to show (monsters, animations), the right rail the panel with how
+// to show it (model, scene, lighting, picture). On a phone (the same rule as style.css) the open one is a sheet under the
+// stage, and only one fits at a time: opening one closes the other.
+const mobile = matchMedia("(max-width: 760px), (pointer: coarse) and (max-height: 520px)");
+const landscape = matchMedia("(pointer: coarse) and (max-height: 520px) and (orientation: landscape)");
+const drawer = $("drawer");
+const panel = $("panel");
+const rail = $("rail");
+const railRight = $("rail-right");
+const TABS = { monsters: "Monsters", anims: "Animations" };
+const PANELS = { model: "Model", scene: "Scene", light: "Lighting", photo: "Picture and video", about: "About" };
+const ui = {
+  tab: recall("tab") in TABS ? recall("tab") : "monsters",
+  open: recall("drawer") !== "closed",
+  // first visit on a computer: the backgrounds are open too
+  pnl: recall("panel") ?? (mobile.matches ? "" : "scene"),
+};
+if (!(ui.pnl in PANELS)) ui.pnl = "";
+if (mobile.matches && ui.open) ui.pnl = "";
+
+function renderDrawers() {
+  drawer.hidden = !ui.open;
+  for (const t in TABS) $(`tab-${t}`).hidden = t !== ui.tab;
+  $("drawer-title").textContent = TABS[ui.tab];
+  $("drawer-num").textContent = ui.tab === "anims" && animSorted.length ? animSorted.length : "";
+  for (const b of rail.querySelectorAll(".ico")) b.classList.toggle("on", ui.open && b.dataset.tab === ui.tab);
+
+  panel.hidden = !ui.pnl;
+  for (const p in PANELS) $(`pnl-${p}`).hidden = p !== ui.pnl;
+  $("panel-title").textContent = PANELS[ui.pnl] ?? "";
+  for (const b of railRight.querySelectorAll(".ico")) b.classList.toggle("on", b.dataset.pnl === ui.pnl);
+}
+
+function saveDrawers() {
+  remember("tab", ui.tab);
+  remember("drawer", ui.open ? "open" : "closed");
+  remember("panel", ui.pnl);
+}
+
+// the same icon again closes it
+function openTab(tab) {
+  if (ui.tab === tab && ui.open) ui.open = false;
+  else {
+    ui.tab = tab;
+    ui.open = true;
+  }
+  if (ui.open && mobile.matches) ui.pnl = "";
+  saveDrawers();
+  renderDrawers();
+  if (ui.open) reveal(drawer.querySelector(`#tab-${ui.tab} .on`) ?? drawer);
+}
+
+function openPanel(p) {
+  ui.pnl = ui.pnl === p ? "" : p;
+  if (ui.pnl && mobile.matches) ui.open = false;
+  saveDrawers();
+  renderDrawers();
+}
+
+rail.addEventListener("click", (e) => {
+  const b = e.target.closest(".ico");
+  if (b) openTab(b.dataset.tab);
 });
-selCostume.addEventListener("change", () => setMonster(selCostume.value));
-stageGrid.addEventListener("change", (e) => setStage(e.target.value));
-for (const box of [showMesh, showWire, showBones]) {
-  box.addEventListener("change", () => {
-    applyLayers();
-    remember("layers", JSON.stringify(layers()));
+railRight.addEventListener("click", (e) => {
+  const b = e.target.closest(".ico");
+  if (b) openPanel(b.dataset.pnl);
+});
+$("drawer-close").addEventListener("click", () => openTab(ui.tab));
+$("panel-close").addEventListener("click", () => openPanel(ui.pnl));
+// turned into a phone (narrow window) with both open: keep the left one
+mobile.addEventListener("change", () => {
+  if (mobile.matches && ui.open && ui.pnl) openPanel(ui.pnl);
+});
+
+// Sheet height on phones: dragging its top (the small bar or the title) makes it taller or shorter; remembered in this
+// browser
+const root = document.documentElement;
+const savedSheet = Number(recall("sheet"));
+if (savedSheet > 0) root.style.setProperty("--sheet", `${savedSheet}px`);
+for (const sheet of [drawer, panel]) {
+  const head = sheet.querySelector(".head");
+  sheet.addEventListener("pointerdown", (e) => {
+    if (!mobile.matches || landscape.matches || e.target.closest("button, input, select, a")) return;
+    if (e.target !== sheet && !head.contains(e.target)) return;
+    e.preventDefault();
+    sheet.setPointerCapture(e.pointerId);
+    const y0 = e.clientY;
+    const h0 = sheet.offsetHeight;
+    const max = innerHeight - 44 - 52 - 120;
+    let h = h0;
+    const move = (ev) => {
+      h = Math.round(Math.max(120, Math.min(max, h0 - (ev.clientY - y0))));
+      root.style.setProperty("--sheet", `${h}px`);
+    };
+    const drop = () => {
+      sheet.removeEventListener("pointermove", move);
+      sheet.removeEventListener("pointerup", drop);
+      sheet.removeEventListener("pointercancel", drop);
+      remember("sheet", h);
+    };
+    sheet.addEventListener("pointermove", move);
+    sheet.addEventListener("pointerup", drop);
+    sheet.addEventListener("pointercancel", drop);
   });
 }
 
-// ---- drawer
-const drawer = document.getElementById("drawer");
-const drawerToggle = document.getElementById("drawer-toggle");
-const panel = document.getElementById("panel");
-
-function setDrawer(open) {
-  drawer.classList.toggle("closed", !open);
-  drawerToggle.setAttribute("aria-expanded", String(open));
-  drawerToggle.setAttribute("aria-label", open ? "Hide controls" : "Show controls");
-  panel.inert = !open;
-}
-drawerToggle.addEventListener("click", () => {
-  const open = drawer.classList.contains("closed");
-  setDrawer(open);
-  remember("drawer", open ? "open" : "closed");
-});
-// on touch screens the open panel covers most of the view: a tap anywhere outside it closes it
-document.addEventListener("pointerdown", (e) => {
-  if (e.pointerType !== "touch" || drawer.classList.contains("closed") || drawer.contains(e.target)) return;
-  setDrawer(false);
-  remember("drawer", "closed");
+// a button clicked with the mouse lets go of the focus, so space and the arrows go back to the player (the keyboard keeps
+// it: e.detail is 0 for a click made with Enter or space)
+document.addEventListener("click", (e) => {
+  if (e.detail > 0) e.target.closest?.("button")?.blur();
 });
 
 // ---- lighting controls
@@ -794,28 +1229,85 @@ function isIdle(a, list) {
   return list.some((b) => b.id === IDLE_ID && !b.part) ? a.id === IDLE_ID && !a.part : !!a.first;
 }
 
+// the animation's name without the frame count (the list shows the count apart)
+function animTitle(a, list) {
+  return animLabel(a, list).replace(/ \(\d+ frames\)$/, "");
+}
+
+// the list in the Animations tab: idle first, then by piece (in file order) and game id
+const animList = $("anim-list");
+let animSorted = [];
+let animK = null; // k of the animation on screen
+let animsReady = false; // false while a monster loads
+
+function renderAnims() {
+  animList.replaceChildren();
+  const list = current?.anims ?? [];
+  let part = null;
+  for (const a of animSorted) {
+    if (a.part && a.part !== part) {
+      const h = document.createElement("div");
+      h.className = "anim-group";
+      h.textContent = a.part;
+      animList.append(h);
+    }
+    part = a.part;
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "anim";
+    b.dataset.k = a.k;
+    const name = document.createElement("span");
+    name.textContent = animTitle(a, list).replace(/^[^:]+: /, ""); // the piece is in the group's title
+    const frames = document.createElement("small");
+    frames.textContent = `${a.frames - 1} frames`;
+    b.append(name, frames);
+    animList.append(b);
+  }
+  if (!animSorted.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = animsReady || !current ? "Only the idle animation." : "Loading…";
+    animList.append(empty);
+  }
+  markAnim();
+  renderDrawers(); // the count on the tab's title
+}
+
+function markAnim() {
+  for (const b of animList.querySelectorAll(".anim")) {
+    const on = Number(b.dataset.k) === animK;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+  syncAnimNav();
+}
+
+function animNameText() {
+  const a = current?.anims?.find((x) => x.k === animK);
+  if (a) return animLabel(a, current.anims);
+  return current?.idle ? "Idle" : "None";
+}
+
+animList.addEventListener("click", (e) => {
+  const b = e.target.closest(".anim");
+  const a = b && current?.anims?.find((x) => x.k === Number(b.dataset.k));
+  if (a && animsReady) setAnim(a);
+});
+
 function fillAnims(list) {
   current.anims = list;
-  selAnim.replaceChildren();
-  // idle first, then by piece (in file order) and game id
-  const sorted = [...list].sort(
+  animSorted = [...list].sort(
     (a, b) => isIdle(b, list) - isIdle(a, list) || piece(a) - piece(b) || a.id - b.id || a.k - b.k,
   );
-  for (const a of sorted) {
-    const op = document.createElement("option");
-    op.value = a.k;
-    op.textContent = animLabel(a, list);
-    selAnim.append(op);
-  }
+  animsReady = true;
   if (!list.length) {
-    const op = document.createElement("option");
-    op.textContent = current.idle ? "Idle" : "None";
-    selAnim.append(op);
+    animK = null;
+    renderAnims();
     return;
   }
-  selAnim.disabled = false;
   const idle = list.find((a) => isIdle(a, list)) ?? list[0];
-  selAnim.value = idle.k;
+  animK = idle.k;
+  renderAnims();
   // keep the visitor's animation when changing costume; another monster starts on its idle
   const saved = recall("anim");
   const wanted = list.find((a) => animKey(a, current) === saved);
@@ -823,10 +1315,8 @@ function fillAnims(list) {
   const keep = keepFrame;
   keepFrame = null;
   const frame = keep && animKey(target, current) === keep.key ? keep.frame : 0;
-  if (target !== idle) {
-    selAnim.value = target.k;
-    setAnim(target, frame);
-  } else if (frame) seek(Math.min(frame, current.frames));
+  if (target !== idle) setAnim(target, frame);
+  else if (frame) seek(Math.min(frame, current.frames));
 }
 
 // remembered as monster + animation name: the same index means a different animation on another monster
@@ -838,6 +1328,9 @@ async function setAnim(a, frame = 0) {
   stopRecording(false); // another animation: the half-made video is dropped
   const mine = ++animRequest;
   const owner = current;
+  animK = a.k;
+  markAnim();
+  reveal(animList.querySelector(".anim.on") ?? animList);
   remember("anim", animKey(a, owner));
   let clip = isIdle(a, owner.anims) && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
   if (!clip) {
@@ -866,11 +1359,6 @@ async function setAnim(a, frame = 0) {
   setupPlayer(frame);
 }
 
-selAnim.addEventListener("change", () => {
-  const a = current?.anims?.find((x) => String(x.k) === selAnim.value);
-  if (a) setAnim(a);
-});
-
 // GLTFLoader doesn't keep animation extras: the scrolling texture keys (extras.uv) are read from the file's JSON
 function animExtras(gltf, i) {
   return gltf.parser?.json?.animations?.[i]?.extras;
@@ -878,49 +1366,56 @@ function animExtras(gltf, i) {
 
 // ---- animation player. The exporter samples every animation at 60 frames per second, so frame n is at time n / 60.
 const FPS = 60;
-const player = document.getElementById("player");
-const playButton = document.getElementById("play");
-const prevFrame = document.getElementById("prev-frame");
-const nextFrame = document.getElementById("next-frame");
-const frameSlider = document.getElementById("frame");
-const frameLabel = document.getElementById("frame-label");
-const prevAnim = document.getElementById("prev-anim");
-const nextAnim = document.getElementById("next-anim");
-const animName = document.getElementById("anim-name");
-const playerToggle = document.getElementById("player-toggle");
+const player = $("player");
+const playButton = $("play");
+const prevFrame = $("prev-frame");
+const nextFrame = $("next-frame");
+const frameSlider = $("frame");
+const frameLabel = $("frame-label");
+const prevAnim = $("prev-anim");
+const nextAnim = $("next-anim");
+const animName = $("anim-name");
 
-// the tab on the player's top edge slides it down out of the way, leaving only the tab (remembered for the next visit)
+// the arrow at the end of the player hides it; a small arrow at the bottom of the stage brings it back (remembered for
+// the next visit)
 function setPlayerShown(shown) {
   player.classList.toggle("collapsed", !shown);
-  playerToggle.setAttribute("aria-expanded", String(shown));
-  playerToggle.setAttribute("aria-label", shown ? "Hide player" : "Show player");
-  playerToggle.title = shown ? "Hide player" : "Show player";
-  for (const el of player.querySelectorAll(":scope > :not(#player-toggle)")) el.inert = !shown;
-}
-playerToggle.addEventListener("click", () => {
-  const shown = player.classList.contains("collapsed");
-  setPlayerShown(shown);
   remember("player", shown ? "shown" : "hidden");
-});
+}
+$("hide-player").addEventListener("click", () => setPlayerShown(false));
+$("show-player").addEventListener("click", () => setPlayerShown(true));
 if (recall("player") === "hidden") setPlayerShown(false);
 
-// playback speed: the button cycles through the list (wrapping around), - and + step down / up without wrapping
+// playback speed: one chip per speed; - and + step down / up
 const SPEEDS = [0.25, 0.5, 1, 2];
-const speedButton = document.getElementById("speed");
+const speedGroup = $("speeds");
+for (const s of SPEEDS) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "chip";
+  chip.dataset.v = s;
+  chip.textContent = `${s}×`;
+  chip.title = `Playback speed ${s}× (- / +)`;
+  speedGroup.append(chip);
+}
 let speed = 1;
 function setSpeed(s) {
   speed = s;
-  speedButton.textContent = `${s}×`;
-  speedButton.classList.toggle("changed", s !== 1);
-  speedButton.setAttribute("aria-label", `Playback speed ${s}×`);
+  for (const chip of speedGroup.children) {
+    const on = Number(chip.dataset.v) === s;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
   remember("speed", s);
 }
-function stepSpeed(delta, wrap) {
-  const n = SPEEDS.length;
+function stepSpeed(delta) {
   const i = SPEEDS.indexOf(speed) + delta;
-  setSpeed(SPEEDS[wrap ? (i + n) % n : Math.max(0, Math.min(n - 1, i))]);
+  setSpeed(SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, i))]);
 }
-speedButton.addEventListener("click", () => stepSpeed(1, true));
+speedGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setSpeed(Number(chip.dataset.v));
+});
 const savedSpeed = Number(recall("speed"));
 setSpeed(SPEEDS.includes(savedSpeed) ? savedSpeed : 1);
 let playing = true;
@@ -973,8 +1468,16 @@ function step(delta) {
 
 // the animation's name between the previous / next buttons (they're off when there is nothing to switch to)
 function syncAnimNav() {
-  animName.textContent = selAnim.selectedOptions[0]?.textContent ?? "";
-  prevAnim.disabled = nextAnim.disabled = selAnim.disabled || selAnim.options.length < 2;
+  animName.textContent = animsReady ? animNameText() : "";
+  prevAnim.disabled = nextAnim.disabled = !animsReady || animSorted.length < 2;
+}
+
+// previous / next animation in the list (wrapping around), as if clicked
+function stepAnim(delta) {
+  const n = animSorted.length;
+  if (!animsReady || n < 2) return;
+  const i = animSorted.findIndex((a) => a.k === animK);
+  setAnim(animSorted[(i + delta + n) % n]);
 }
 
 // previous / next option of a select (wrapping around, skipping hidden options), as if picked by the visitor
@@ -988,22 +1491,16 @@ function stepSelect(sel, delta) {
   sel.value = options[next].value;
   sel.dispatchEvent(new Event("change"));
 }
-const stepAnim = (delta) => stepSelect(selAnim, delta);
 prevAnim.addEventListener("click", () => stepAnim(-1));
 nextAnim.addEventListener("click", () => stepAnim(1));
 
 // previous / next background tile (wrapping around), as if clicked
 function stepStage(delta) {
-  const radios = [...stageGrid.querySelectorAll('input[name="stage"]')];
-  const i = radios.findIndex((r) => r.checked);
-  const radio = radios[(i + delta + radios.length) % radios.length];
-  radio.checked = true;
-  radio.dispatchEvent(new Event("change", { bubbles: true }));
-  // scroll only the grid (not the panel or the page) so the picked tile is visible
-  const g = stageGrid.getBoundingClientRect();
-  const t = radio.closest(".thumb").getBoundingClientRect();
-  if (t.top < g.top) stageGrid.scrollTop -= g.top - t.top + 2;
-  else if (t.bottom > g.bottom) stageGrid.scrollTop += t.bottom - g.bottom + 2;
+  const tiles = [...stageList.children];
+  const i = tiles.findIndex((t) => t.dataset.file === stage);
+  const tile = tiles[(i + delta + tiles.length) % tiles.length];
+  setStage(tile.dataset.file);
+  reveal(tile);
 }
 
 playButton.addEventListener("click", () => setPlaying(!playing));
@@ -1017,8 +1514,8 @@ frameSlider.addEventListener("input", () => {
 
 // ---- showcase mode: the interface goes away and the camera slowly circles the monster. The shortcuts keep working
 // (H or Esc leaves); on touch screens a round button in the corner leaves, and fades out when nobody touches anything.
-const showcaseButton = document.getElementById("showcase");
-const showcaseExit = document.getElementById("showcase-exit");
+const showcaseButton = $("showcase");
+const showcaseExit = $("showcase-exit");
 controls.autoRotateSpeed = 1.5; // 40 seconds per turn
 let idleTimer = 0;
 function wake() {
@@ -1048,24 +1545,27 @@ for (const type of ["pointermove", "pointerdown"]) {
 }
 
 // keyboard: letters cycle the lists and 1 2 3 toggle the layers (the page has no text field, so they work even with a
-// select focused), space = play/pause and arrows = one frame (only when no form control has focus, so those keep their
+// select or a button focused), space = play/pause and arrows = one frame (only when no form control has focus, so those keep their
 // own keys)
 const SHORTCUTS = {
   a: () => stepAnim(-1),
   d: () => stepAnim(1),
-  w: () => stepSelect(selCostume, -1),
-  s: () => stepSelect(selCostume, 1),
-  q: () => stepSelect(selMonster, -1),
-  e: () => stepSelect(selMonster, 1),
+  w: () => stepCostume(-1),
+  s: () => stepCostume(1),
+  q: () => stepMonster(-1),
+  e: () => stepMonster(1),
   z: () => stepStage(-1),
   x: () => stepStage(1),
   r: () => stepSelect(selLight, 1),
-  1: () => showMesh.click(),
-  2: () => showWire.click(),
-  3: () => showBones.click(),
-  "-": () => stepSpeed(-1, false),
-  "+": () => stepSpeed(1, false),
-  "=": () => stepSpeed(1, false), // + without shift on US keyboards
+  f: () => setShading(flatShading() ? "smooth" : "flat"),
+  v: () => setSurface(SURFACES[(SURFACES.indexOf(surface) + 1) % SURFACES.length]),
+  g: () => setGrid(!grid.visible),
+  1: () => toggleLayer("mesh"),
+  2: () => toggleLayer("wire"),
+  3: () => toggleLayer("bones"),
+  "-": () => stepSpeed(-1),
+  "+": () => stepSpeed(1),
+  "=": () => stepSpeed(1), // + without shift on US keyboards
   h: () => setShowcase(!inShowcase()),
 };
 window.addEventListener("keydown", (e) => {
@@ -1155,16 +1655,12 @@ try {
 } catch {}
 const oldMode = recall("mesh");
 if (!savedLayers && oldMode) savedLayers = { mesh: oldMode !== "wire", wire: oldMode !== "solid", bones: false };
-if (savedLayers) {
-  showMesh.checked = !!savedLayers.mesh;
-  showWire.checked = !!savedLayers.wire;
-  showBones.checked = !!savedLayers.bones;
-}
-// starts closed on narrow screens (the open panel would cover the monster); the visitor's last choice wins
-const savedDrawer = recall("drawer");
-drawer.style.transition = "none"; // no slide on page load
-setDrawer(savedDrawer ? savedDrawer === "open" : window.innerWidth >= 700);
-requestAnimationFrame(() => requestAnimationFrame(() => (drawer.style.transition = "")));
+for (const key in layerState) setLayer(key, savedLayers ? !!savedLayers[key] : layerState[key]);
+renderDrawers();
+setGrid(recall("grid") !== "off");
+setShading(shading);
+setSurface(surface);
+setPictureScale(1);
 
 let savedLight = null;
 try {

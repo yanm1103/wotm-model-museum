@@ -100,11 +100,13 @@ export class UvScroll {
     if (list) return list;
     list = [];
     this.root.getObjectByName(name)?.traverse((o) => {
-      if (!o.isMesh || o.userData.wire || !o.material.map) return;
-      const t = o.material.map.clone();
+      // the game's material, even while the page shows another view (normals, vertex colors) on the mesh
+      const m = o.userData.game ?? o.material;
+      if (!o.isMesh || o.userData.wire || !m.map) return;
+      const t = m.map.clone();
       t.wrapS = t.wrapT = THREE.RepeatWrapping;
       t.needsUpdate = true;
-      o.material.map = t;
+      m.map = t;
       list.push(t);
     });
     this.maps.set(name, list);

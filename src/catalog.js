@@ -4,6 +4,7 @@
 // labels: costume names in the costume select (default "costume N"; hidden when there is only one). A prefix may be split
 // across entries (the plant boss and its root are PLANT0 and PLANT1).
 // zoom: camera dolly per monster (Togera's tail and Raptros' wings make the box wide), as in the game port's save list.
+// logo: false when there is no public/logos/<prefix>.png (the bosses): the monster list shows the name instead.
 export const MONSTERS = [
   { prefix: "MONKEY", name: "Congar", costumes: [0, 1, 2, 3] },
   { prefix: "ROBOT", name: "Robo-47", costumes: [0, 1, 2, 3] },
@@ -16,13 +17,13 @@ export const MONSTERS = [
   { prefix: "ROCK", name: "Agamo", costumes: [0, 1, 2, 3] },
   { prefix: "ALIEN", name: "Zorgulon", costumes: [0, 1, 2, 3] },
   // ASSBOSS0.NGP (March 2002, gray, 59 animations) looks like an early version left on the disc; ASSBOSS1 is the final boss
-  { prefix: "ASSBOSS", name: "Goliath Prime", costumes: [0, 1], labels: ["early version", "final"] },
+  { prefix: "ASSBOSS", name: "Goliath Prime", costumes: [0, 1], labels: ["early version", "final"], logo: false },
   // Bosses. The plant is put together from pieces of the 3-MILE level (base and three heads where the game places them;
   // one root on its own) and the Mecha from CAPITOL (monglb.py --boss); the jelly and the last form are MON/JELLY0 and
   // MON/FINAL0 (Cerebulon). The plant's animations are listed per piece ("Head", "Base").
-  { prefix: "PLANT", name: "Plant boss", costumes: [0] },
-  { prefix: "PLANT", name: "Plant boss root", costumes: [1] },
-  { prefix: "FINALBOSS", name: "Cerebulon", costumes: [0, 1, 2], labels: ["stage 1: Mecha", "stage 2: Jelly", "stage 3"] },
+  { prefix: "PLANT", name: "Plant boss", costumes: [0], logo: false },
+  { prefix: "PLANT", name: "Plant boss root", costumes: [1], logo: false },
+  { prefix: "FINALBOSS", name: "Cerebulon", costumes: [0, 1, 2], labels: ["stage 1: Mecha", "stage 2: Jelly", "stage 3"], logo: false },
 ];
 
 // Stage pictures from the game menu (WoTM/tools/shellpics.py), in game order
