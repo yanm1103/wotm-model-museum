@@ -1553,7 +1553,7 @@ $("show-player").addEventListener("click", () => setPlayerShown(true));
 if (recall("player") === "hidden") setPlayerShown(false);
 
 // playback speed: one chip per speed; - and + step down / up
-const SPEEDS = [0.25, 0.5, 1, 2];
+const SPEEDS = [0.5, 1, 2];
 const speedGroup = $("speeds");
 for (const s of SPEEDS) {
   const chip = document.createElement("button");
@@ -1584,6 +1584,36 @@ speedGroup.addEventListener("click", (e) => {
 });
 const savedSpeed = Number(recall("speed"));
 setSpeed(SPEEDS.includes(savedSpeed) ? savedSpeed : 1);
+
+// frame interpolation: on, three.js blends between the 60 frames of each second; off, the pose holds each frame until
+// the next one, like a frame-by-frame player (the clock keeps running smoothly underneath)
+const interpGroup = $("interp-group");
+let interpolate = true;
+function setInterpolate(on) {
+  interpolate = on;
+  for (const chip of interpGroup.children) {
+    const pressed = (chip.dataset.v === "on") === on;
+    chip.classList.toggle("on", pressed);
+    chip.setAttribute("aria-pressed", String(pressed));
+  }
+  remember("interp", on ? "on" : "off");
+  if (!on && current?.action) seek(currentFrame()); // snap the pose on screen now, even while paused
+}
+interpGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) setInterpolate(chip.dataset.v === "on");
+});
+setInterpolate(recall("interp") !== "off");
+
+// poses the frame the player shows, then puts the clock back where it was so playback keeps its pace
+function holdFrame() {
+  const action = current.action;
+  if (!action) return;
+  const time = action.time;
+  action.time = currentFrame() / FPS;
+  current.mixer.update(0);
+  action.time = time;
+}
 let playing = true;
 let shownFrame = -1;
 let keepFrame = null; // { key, frame }: the paused frame to reopen after a costume change
@@ -1801,13 +1831,14 @@ renderer.setAnimationLoop(() => {
   const dt = Math.min((now - lastTime) / 1000, 0.1); // background tab: don't skip the whole animation
   if (playing && current) {
     current.mixer.update(dt * speed);
+    if (!interpolate) holdFrame();
     showFrame();
   }
   checkRecording();
   lastTime = now;
   controls.update(dt); // the time step keeps the showcase's turn at the same speed on any refresh rate
   if (current) {
-    const t = current.action?.time ?? 0;
+    const t = current.action ? (interpolate ? current.action.time : currentFrame() / FPS) : 0;
     current.uv.update(t, current.action?.getClip().uvTracks);
     current.root.updateMatrixWorld();
     current.effects.update(t * FPS, camera);
