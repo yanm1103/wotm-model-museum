@@ -28,8 +28,16 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   component), constant tracks equal to the rest pose are left out (three.js restores a node when the previous animation stops),
   one bufferView per file, rotations as normalized int16. All 157 files pass the glTF validator (0 errors, 0 warnings).
 - **Animations are identified by k** (index in the game's table), not by id: ids repeat (Togera has two animation 0s). The
-  select shows "Idle" first, then "Animation <id>" sorted by id ("#1/#2" for repeated ids). No names yet: the decomp's
-  `MonsterAnim` enum is still unnamed.
+  select shows "Idle" first, then "Animation <id>" sorted by id ("#1/#2" for repeated ids).
+- **Animation names (2026-11-05):** `src/anim-ids.json`, made by `npm run anim-ids` (`scripts/anim-ids.mjs`) from the
+  decomp's `docs/ANIM_IDS.md` (`-- --ref wip/cj` reads it from that branch) and, for the attack slots, the combo table of
+  each `RST/<PREFIX>.CHR` (`tools/chr_dump.py --csv`, needs Python and the disc; without them the last combos are kept).
+  The list groups the animations by kind (chips filter one kind), shows id, short name, how it plays (loop / hold / layer /
+  additive) and the frames; "?" marks a "likely" or "guess", and a guess is dimmed. The tooltip, and a line under the
+  picked one, give the table's description, the combo and the confidence. Attack slots are named by button and hit of a
+  combo ("Attack: □ 1/3 · △ 6"), never by the move, which is each monster's own. Only the 11 monsters the table covers get
+  names; the plant and Cerebulon keep "Animation <id>". The short names and groups live in the script; when the table
+  changes, it warns about new ids, gone ids and changed descriptions.
 - **Player:** bar at the bottom with previous frame / play-pause / next frame, a frame slider (one step = one frame at 60/s) and
   "frame / total"; space and the arrow keys do the same. Paused, "Save as png" saves the chosen frame. The picked animation is
   kept when changing costume.

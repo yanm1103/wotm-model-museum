@@ -4,6 +4,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { MONSTERS, STAGES } from "./catalog.js";
 import { applyGs, Background, Effects, UvScroll } from "./effects.js";
 import { mergeGlb } from "./glbmerge.js";
+import ANIM_IDS from "./anim-ids.json";
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -1090,7 +1091,7 @@ function renderDrawers() {
   drawer.hidden = !ui.open;
   for (const t in TABS) $(`tab-${t}`).hidden = t !== ui.tab;
   $("drawer-title").textContent = TABS[ui.tab];
-  $("drawer-num").textContent = ui.tab === "anims" && animSorted.length ? animSorted.length : "";
+  $("drawer-num").textContent = ui.tab === "anims" && animSorted.length ? animShown().length : "";
   for (const b of rail.querySelectorAll(".ico")) b.classList.toggle("on", ui.open && b.dataset.tab === ui.tab);
 
   panel.hidden = !ui.pnl;
@@ -1212,14 +1213,81 @@ const IDLE_ID = 90;
 const clipCache = new Map(); // url -> AnimationClip
 let animRequest = 0;
 
+// What each id is: src/anim-ids.json, made from the decomp's docs/ANIM_IDS.md by scripts/anim-ids.mjs. The game asks
+// every monster for the same id (34 is always the fall of a jump), so a name holds for every monster the table covers;
+// the bosses (another numbering, or not checked) keep plain numbers. The attack slots are each monster's own move: their
+// name is the button and the hit of a combo that plays them (from the monster's .CHR).
+const LABELED = new Set(ANIM_IDS.monsters);
+const GROUP_RANK = new Map(ANIM_IDS.groups.map((g, i) => [g.key, i]));
+const GROUP_LABEL = new Map(ANIM_IDS.groups.map((g) => [g.key, g.label]));
+const NOT_IN_TABLE = { group: "other", name: "Not in the table", text: "this id is not in the table yet", loop: null, conf: "guess" };
+const LOOP_TEXT = {
+  loop: "Loops: the game repeats it.",
+  hold: "Holds: the game keeps it on while the move lasts.",
+  layer: "Layer: the game doesn't play it in time. It takes one pose from it, by a percentage, and adds it over the main animation.",
+  additive: "Additive: plays once, added over the main animation.",
+  once: "Plays once.",
+};
+const CONF_TEXT = { certain: "the game code says so", likely: "the code plus a deduction", guess: "nothing in the game code says what it is" };
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
+// writes text into el with the pad buttons (□ △ ○ ✕) in a symbol font: the page's font draws □ much smaller than △
+function setButtonText(el, text) {
+  el.replaceChildren(
+    ...text.split(/([□△○✕])/).map((part, i) => {
+      if (!(i % 2)) return part;
+      const b = document.createElement("span");
+      b.className = "pad";
+      b.textContent = part;
+      return b;
+    }),
+  );
+}
+
+// the table's entry for an animation of `owner` (null for the bosses), with the attack slots named by their combo
+function animInfo(a, owner = current) {
+  const prefix = monsterOf(owner?.file)?.prefix;
+  if (a.part || !LABELED.has(prefix)) return null;
+  const e = ANIM_IDS.ids[a.id] ?? NOT_IN_TABLE;
+  if (e.name !== "Attack") return e;
+  const combo = ANIM_IDS.combos[prefix]?.[a.id];
+  return { ...e, combo, name: combo ? `Attack: ${combo.short}` : "Attack, in no combo" };
+}
+
+// the tooltip: the table's description, the combo, how it plays and how sure the table is
+function animTip(a, list, info) {
+  const lines = [animTitle(a, list), `${cap(info.text)}.`];
+  if (info.combo) lines.push(`${info.combo.long}.`);
+  else if (info.name === "Attack, in no combo") lines.push("No combo slot of this monster plays it.");
+  if (LOOP_TEXT[info.loop]) lines.push(LOOP_TEXT[info.loop]);
+  lines.push(`Confidence: ${info.confNote ?? info.conf} (${CONF_TEXT[info.conf]}).`);
+  return lines.join("\n");
+}
+
+// "#1", "#2" when a piece has the id more than once (only the first one is reachable by id in the game)
+function dupNo(a, list) {
+  const same = list.filter((b) => b.id === a.id && b.part === a.part);
+  return same.length > 1 ? ` #${same.indexOf(a) + 1}` : "";
+}
+
 // Bosses made of pieces (the plant) list each piece's animations: a.part is "Head", "Base"... (the other pieces keep
 // their resting animation). a.first marks the animation the model file starts in (bosses have no idle 90).
-function animLabel(a, list) {
-  if (a.id === IDLE_ID && !a.part) return `Idle (${a.frames - 1} frames)`;
-  const same = list.filter((b) => b.id === a.id && b.part === a.part);
-  const n = same.length > 1 ? ` #${same.indexOf(a) + 1}` : "";
+// The plain name (without the table's names) is also what the visitor's pick is remembered by.
+function plainTitle(a, list) {
+  if (a.id === IDLE_ID && !a.part) return "Idle";
   const part = a.part ? `${a.part}: ` : "";
-  return `${part}Animation ${a.id}${n} (${a.frames - 1} frames)`;
+  return `${part}Animation ${a.id}${dupNo(a, list)}`;
+}
+
+// the animation's name without the frame count (the list shows the count apart)
+function animTitle(a, list, owner = current) {
+  const info = animInfo(a, owner);
+  if (!info) return plainTitle(a, list);
+  return `${a.id}${dupNo(a, list)} · ${info.name}${info.conf === "certain" ? "" : " ?"}`;
+}
+
+function animLabel(a, list, owner = current) {
+  return `${animTitle(a, list, owner)} (${a.frames - 1} frames)`;
 }
 
 // boss animation keys are 100 * piece + index
@@ -1229,41 +1297,127 @@ function isIdle(a, list) {
   return list.some((b) => b.id === IDLE_ID && !b.part) ? a.id === IDLE_ID && !a.part : !!a.first;
 }
 
-// the animation's name without the frame count (the list shows the count apart)
-function animTitle(a, list) {
-  return animLabel(a, list).replace(/ \(\d+ frames\)$/, "");
+// the group's place in the list (the bosses have none)
+function groupRank(a) {
+  const info = animInfo(a);
+  return info ? GROUP_RANK.get(info.group) : 0;
 }
 
-// the list in the Animations tab: idle first, then by piece (in file order) and game id
+// The list in the Animations tab: idle first, then by piece (in file order) or by kind (the table's groups), then game id.
+// The chips over it show one kind only (remembered); previous / next go through what the list shows.
 const animList = $("anim-list");
+const animFilter = $("anim-filter");
 let animSorted = [];
 let animK = null; // k of the animation on screen
 let animsReady = false; // false while a monster loads
+let animGroup = recall("animGroup") ?? ""; // "" = every kind
+
+// the kinds the monster on screen has; a remembered kind it doesn't have shows everything
+function animGroups() {
+  return new Set(animSorted.map((a) => animInfo(a)?.group).filter(Boolean));
+}
+function shownGroup() {
+  return animGroups().has(animGroup) ? animGroup : "";
+}
+function animShown() {
+  const g = shownGroup();
+  return g ? animSorted.filter((a) => animInfo(a)?.group === g) : animSorted;
+}
+
+function renderFilter() {
+  const groups = animGroups();
+  animFilter.hidden = groups.size < 2;
+  const g = shownGroup();
+  const chips = [["", "All", animSorted.length]];
+  for (const { key, label } of ANIM_IDS.groups) {
+    if (groups.has(key)) chips.push([key, label, animSorted.filter((a) => animInfo(a)?.group === key).length]);
+  }
+  animFilter.replaceChildren(
+    ...chips.map(([key, label, n]) => {
+      const c = document.createElement("button");
+      c.type = "button";
+      c.className = "chip";
+      c.dataset.g = key;
+      c.classList.toggle("on", key === g);
+      c.setAttribute("aria-pressed", String(key === g));
+      c.textContent = label;
+      const count = document.createElement("small");
+      count.textContent = n;
+      c.append(count);
+      return c;
+    }),
+  );
+}
+
+animFilter.addEventListener("click", (e) => {
+  const c = e.target.closest(".chip");
+  if (!c) return;
+  animGroup = c.dataset.g;
+  remember("animGroup", animGroup);
+  renderAnims();
+  reveal(animList.querySelector(".anim.on") ?? animList);
+});
 
 function renderAnims() {
   animList.replaceChildren();
+  renderFilter();
   const list = current?.anims ?? [];
-  let part = null;
-  for (const a of animSorted) {
-    if (a.part && a.part !== part) {
-      const h = document.createElement("div");
-      h.className = "anim-group";
-      h.textContent = a.part;
-      animList.append(h);
+  const shown = animShown();
+  let head = null;
+  for (const a of shown) {
+    const info = animInfo(a);
+    const h = a.part ?? (info ? GROUP_LABEL.get(info.group) : null);
+    if (h && h !== head) {
+      const el = document.createElement("div");
+      el.className = "anim-group";
+      el.textContent = h;
+      animList.append(el);
     }
-    part = a.part;
+    head = h;
     const b = document.createElement("button");
     b.type = "button";
     b.className = "anim";
     b.dataset.k = a.k;
     const name = document.createElement("span");
-    name.textContent = animTitle(a, list).replace(/^[^:]+: /, ""); // the piece is in the group's title
+    name.className = "name";
+    if (info) {
+      // id, name ("?" when the table isn't sure; a guess is dimmed), how it plays, and the description under the
+      // picked one (phones have no tooltip)
+      b.classList.toggle("guess", info.conf === "guess");
+      b.title = animTip(a, list, info);
+      const id = document.createElement("span");
+      id.className = "id";
+      id.textContent = `${a.id}${dupNo(a, list).replace(" ", "")}`;
+      setButtonText(name, info.name);
+      if (info.conf !== "certain") {
+        const q = document.createElement("span");
+        q.className = "conf";
+        q.textContent = " ?";
+        name.append(q);
+      }
+      b.append(id, name);
+      if (info.loop && info.loop !== "once") {
+        const kind = document.createElement("small");
+        kind.className = "kind";
+        kind.textContent = info.loop;
+        b.append(kind);
+      }
+    } else {
+      name.textContent = a.part ? plainTitle(a, list).slice(a.part.length + 2) : plainTitle(a, list); // the piece is the header
+      b.append(name);
+    }
     const frames = document.createElement("small");
     frames.textContent = `${a.frames - 1} frames`;
-    b.append(name, frames);
+    b.append(frames);
+    if (info) {
+      const desc = document.createElement("span");
+      desc.className = "desc";
+      setButtonText(desc, `${cap(info.text)}.${info.combo ? ` ${info.combo.long}.` : ""}`);
+      b.append(desc);
+    }
     animList.append(b);
   }
-  if (!animSorted.length) {
+  if (!shown.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = animsReady || !current ? "Only the idle animation." : "Loading…";
@@ -1282,10 +1436,21 @@ function markAnim() {
   syncAnimNav();
 }
 
+function shownAnim() {
+  return current?.anims?.find((x) => x.k === animK);
+}
+
 function animNameText() {
-  const a = current?.anims?.find((x) => x.k === animK);
+  const a = shownAnim();
   if (a) return animLabel(a, current.anims);
   return current?.idle ? "Idle" : "None";
+}
+
+// the player's tooltip, the same as the list's
+function animNameTip() {
+  const a = shownAnim();
+  const info = a && animInfo(a);
+  return info ? animTip(a, current.anims, info) : "";
 }
 
 animList.addEventListener("click", (e) => {
@@ -1297,7 +1462,8 @@ animList.addEventListener("click", (e) => {
 function fillAnims(list) {
   current.anims = list;
   animSorted = [...list].sort(
-    (a, b) => isIdle(b, list) - isIdle(a, list) || piece(a) - piece(b) || a.id - b.id || a.k - b.k,
+    (a, b) =>
+      isIdle(b, list) - isIdle(a, list) || piece(a) - piece(b) || groupRank(a) - groupRank(b) || a.id - b.id || a.k - b.k,
   );
   animsReady = true;
   if (!list.length) {
@@ -1319,9 +1485,9 @@ function fillAnims(list) {
   else if (frame) seek(Math.min(frame, current.frames));
 }
 
-// remembered as monster + animation name: the same index means a different animation on another monster
+// remembered as monster + plain animation name: the same index means a different animation on another monster
 function animKey(a, owner) {
-  return `${monsterOf(owner.file)?.prefix ?? owner.file}|${animLabel(a, owner.anims)}`;
+  return `${monsterOf(owner.file)?.prefix ?? owner.file}|${plainTitle(a, owner.anims)} (${a.frames - 1} frames)`;
 }
 
 async function setAnim(a, frame = 0) {
@@ -1334,7 +1500,7 @@ async function setAnim(a, frame = 0) {
   remember("anim", animKey(a, owner));
   let clip = isIdle(a, owner.anims) && owner.idle ? owner.idle : clipCache.get(`${BASE}models/${a.file}`);
   if (!clip) {
-    status.textContent = `Loading ${animLabel(a, owner.anims)}…`;
+    status.textContent = `Loading ${animLabel(a, owner.anims, owner)}…`;
     const url = `${BASE}models/${a.file}`;
     try {
       const g = await gltfLoader.loadAsync(url);
@@ -1468,16 +1634,19 @@ function step(delta) {
 
 // the animation's name between the previous / next buttons (they're off when there is nothing to switch to)
 function syncAnimNav() {
-  animName.textContent = animsReady ? animNameText() : "";
-  prevAnim.disabled = nextAnim.disabled = !animsReady || animSorted.length < 2;
+  setButtonText(animName, animsReady ? animNameText() : "");
+  animName.title = animsReady ? animNameTip() : "";
+  prevAnim.disabled = nextAnim.disabled = !animsReady || animShown().length < 2;
 }
 
-// previous / next animation in the list (wrapping around), as if clicked
+// previous / next animation in the list as shown (wrapping around), as if clicked; from one the filter hides, the
+// first or last shown
 function stepAnim(delta) {
-  const n = animSorted.length;
+  const shown = animShown();
+  const n = shown.length;
   if (!animsReady || n < 2) return;
-  const i = animSorted.findIndex((a) => a.k === animK);
-  setAnim(animSorted[(i + delta + n) % n]);
+  const i = shown.findIndex((a) => a.k === animK);
+  setAnim(shown[i < 0 ? (delta > 0 ? 0 : n - 1) : (i + delta + n) % n]);
 }
 
 // previous / next option of a select (wrapping around, skipping hidden options), as if picked by the visitor

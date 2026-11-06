@@ -538,8 +538,9 @@ input[type="color"] {
 
 .anim {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 8px;
+  gap: 2px 8px;
   width: 100%;
   padding: 6px 8px;
   text-align: left;
@@ -559,15 +560,77 @@ input[type="color"] {
   background: var(--accent-bg);
 }
 
-.anim span {
+.anim .name {
   flex: 1;
   min-width: 0;
+}
+
+/* the game id, in a column of its own */
+.anim .id {
+  flex: none;
+  min-width: 3.2em;
+  color: var(--muted);
+  font: 11px var(--mono);
 }
 
 .anim small {
   flex: none;
   color: var(--muted);
   font: 10px var(--mono);
+}
+
+/* how it plays (loop, hold, layer, additive): "once" shows nothing */
+.anim .kind {
+  padding: 0 4px;
+  border: 1px solid var(--border2);
+  border-radius: 2px;
+  color: var(--soft-text);
+}
+
+/* the table isn't sure: a "?" after the name, and a guess dimmed */
+.anim .conf {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.anim.guess:not(.on) {
+  opacity: 0.55;
+}
+
+/* the description, under the picked one only (the others have it as a tooltip) */
+.anim .desc {
+  display: none;
+  flex-basis: 100%;
+  padding: 2px 0 1px calc(3.2em + 8px);
+  color: var(--soft-text);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.anim.on .desc {
+  display: block;
+}
+
+/* one chip per kind of animation, over the list */
+.anim-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.anim-filter[hidden] {
+  display: none;
+}
+
+.anim-filter .chip {
+  padding: 4px 7px;
+  font-size: 11px;
+}
+
+.anim-filter .chip small {
+  margin-left: 5px;
+  color: var(--muted);
 }
 
 .anim-group {
@@ -1232,4 +1295,10 @@ body.showcase.idle {
   #app:has(.drawer:not([hidden])) #stage {
     grid-column: 1;
   }
+}
+
+/* the pad buttons (□ △ ○ ✕) in a symbol font, so the four come out the same size */
+.pad {
+  font-family: "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", "DejaVu Sans", sans-serif;
+  font-weight: 400;
 }
