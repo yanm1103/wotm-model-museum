@@ -230,6 +230,17 @@ header h1 b {
   display: block;
 }
 
+/* link to the sister site; its long label only fits on wide screens, below that it is just the icon (the tooltip says it) */
+#sister img {
+  display: block;
+}
+
+@media (max-width: 1400px) {
+  #sister span {
+    display: none;
+  }
+}
+
 .chip {
   padding: 6px 10px;
   border: 1px solid var(--border2);
