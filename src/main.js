@@ -175,6 +175,68 @@ const filesOf = (m) => m.costumes.map((c) => `${m.prefix}${c}`);
 let monster = MONSTERS[0];
 let costume = filesOf(monster)[0]; // the file of the picked costume
 
+// ---- detail levels (LOD): public/models/lod/ is made by scripts/export-lods.py; its index.json lists the costumes that have
+// them. A costume that has an entry gets one chip per level.
+const lodSection = $("lod-section");
+const lodGroup = $("lods");
+let lodIndex = {}; // costume file -> { levels: [path under models/, ...] }; index 0 is the coarsest, the last is the costume's own .glb
+let lod = null; // the picked level; null = the most detailed (the costume's own .glb)
+const lodLevels = (file) => lodIndex[file]?.levels;
+
+// the .glb to load for a costume: the picked level if the costume has it, else its own file
+function modelOf(file) {
+  const levels = lodLevels(file);
+  return levels && lod != null && lod < levels.length - 1 ? levels[lod] : file;
+}
+
+function fillLods() {
+  const levels = lodLevels(costume);
+  lodGroup.replaceChildren();
+  lodSection.hidden = !levels;
+  if (!levels) return;
+  lodGroup.style.setProperty("--n", Math.min(levels.length, 4));
+  levels.forEach((_, i) => {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.dataset.i = i;
+    chip.textContent = `LOD ${i}`;
+    chip.title = i === levels.length - 1 ? "Most detailed (what the site shows)" : i === 0 ? "Coarsest" : "";
+    lodGroup.append(chip);
+  });
+}
+
+function markLods() {
+  const levels = lodLevels(costume);
+  if (!levels) return;
+  const shown = lod == null ? levels.length - 1 : Math.min(lod, levels.length - 1);
+  for (const chip of lodGroup.children) {
+    const on = Number(chip.dataset.i) === shown;
+    chip.classList.toggle("on", on);
+    chip.setAttribute("aria-pressed", String(on));
+  }
+}
+
+function pickLod(i) {
+  lod = i >= lodLevels(costume).length - 1 ? null : i;
+  markLods();
+  setMonster(costume);
+}
+lodGroup.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (chip) pickLod(Number(chip.dataset.i));
+});
+
+fetch(`${BASE}models/lod/index.json`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((index) => {
+    if (!index) return;
+    lodIndex = index;
+    fillLods();
+    markLods();
+  })
+  .catch(() => {});
+
 MONSTERS.forEach((m, i) => {
   const tile = document.createElement("button");
   tile.type = "button";
@@ -222,6 +284,7 @@ function fillCostumes(m, file) {
   });
   costumeSection.hidden = m.costumes.length < 2;
   costume = filesOf(m).includes(file) ? file : filesOf(m)[0];
+  fillLods();
 }
 
 function markMonster() {
@@ -235,10 +298,12 @@ function markMonster() {
     chip.classList.toggle("on", on);
     chip.setAttribute("aria-pressed", String(on));
   }
+  markLods();
 }
 
 function pickCostume(file) {
   costume = file;
+  fillLods();
   markMonster();
   setMonster(file);
 }
@@ -686,7 +751,8 @@ async function setMonster(file) {
   const mine = ++request;
   const mon = monsterOf(file);
   const label = mon?.name ?? file;
-  const url = `${BASE}models/${file}.glb`;
+  const model = modelOf(file); // the costume's own file, or one of its detail levels
+  const url = `${BASE}models/${model}.glb`;
   status.textContent = "";
   remember("monster", file);
 
@@ -721,7 +787,7 @@ async function setMonster(file) {
       loadingBox.hidden = true;
       if (current) current.root.visible = true;
       applyLayers();
-      status.textContent = `Could not load ${file}.glb`;
+      status.textContent = `Could not load ${model}.glb`;
     }
     console.error(e);
     return;
@@ -771,7 +837,7 @@ async function setMonster(file) {
   scene.add(root, bones, ...effects.sceneObjects);
   for (const o of effects.overlayObjects) overlay.add(o);
   const uv = new UvScroll(root);
-  current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip, effects, uv };
+  current = { root, mixer, bones, action, frames: clip ? Math.round(clip.duration * FPS) : 0, file, idle: clip, effects, uv, model };
   applySurface();
   setupPlayer();
   fillAnims(root.userData.animations ?? []);
@@ -804,7 +870,8 @@ download.addEventListener("click", async (e) => {
   downloadBusy = true;
   const owner = current;
   const mon = monsterOf(owner.file);
-  const name = `${(mon?.name ?? owner.file).replace(/[^\w-]+/g, "_")}_${owner.file}.glb`;
+  const level = owner.model !== owner.file ? owner.model.slice(owner.model.lastIndexOf("_")) : ""; // "_L1" for a detail level
+  const name = `${(mon?.name ?? owner.file).replace(/[^\w-]+/g, "_")}_${owner.file}${level}.glb`;
   const list = owner.anims;
   const own = list.find((a) => isIdle(a, list)); // the animation the costume's .glb already has
   const others = animSorted.filter((a) => a !== own);
@@ -812,7 +879,7 @@ download.addEventListener("click", async (e) => {
   const progress = (done) => (downloadLabel.textContent = `Preparing… ${done} of ${others.length} animations`);
   try {
     progress(0);
-    const base = await fetchBuffer(`${BASE}models/${owner.file}.glb`);
+    const base = await fetchBuffer(`${BASE}models/${owner.model}.glb`);
     const buffers = new Array(others.length);
     let next = 0;
     let done = 0;

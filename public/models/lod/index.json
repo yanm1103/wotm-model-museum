@@ -1,0 +1,319 @@
+{
+ "ALIEN0": {
+  "levels": [
+   "lod/ALIEN0_L0",
+   "lod/ALIEN0_L1",
+   "ALIEN0"
+  ]
+ },
+ "ALIEN1": {
+  "levels": [
+   "lod/ALIEN1_L0",
+   "lod/ALIEN1_L1",
+   "ALIEN1"
+  ]
+ },
+ "ALIEN2": {
+  "levels": [
+   "lod/ALIEN2_L0",
+   "lod/ALIEN2_L1",
+   "ALIEN2"
+  ]
+ },
+ "ALIEN3": {
+  "levels": [
+   "lod/ALIEN3_L0",
+   "lod/ALIEN3_L1",
+   "ALIEN3"
+  ]
+ },
+ "ASSBOSS1": {
+  "levels": [
+   "lod/ASSBOSS1_L0",
+   "ASSBOSS1"
+  ]
+ },
+ "DRAGON0": {
+  "levels": [
+   "lod/DRAGON0_L0",
+   "lod/DRAGON0_L1",
+   "lod/DRAGON0_L2",
+   "DRAGON0"
+  ]
+ },
+ "DRAGON1": {
+  "levels": [
+   "lod/DRAGON1_L0",
+   "lod/DRAGON1_L1",
+   "lod/DRAGON1_L2",
+   "DRAGON1"
+  ]
+ },
+ "DRAGON2": {
+  "levels": [
+   "lod/DRAGON2_L0",
+   "lod/DRAGON2_L1",
+   "lod/DRAGON2_L2",
+   "DRAGON2"
+  ]
+ },
+ "DRAGON3": {
+  "levels": [
+   "lod/DRAGON3_L0",
+   "lod/DRAGON3_L1",
+   "lod/DRAGON3_L2",
+   "DRAGON3"
+  ]
+ },
+ "ENERGY0": {
+  "levels": [
+   "lod/ENERGY0_L0",
+   "lod/ENERGY0_L1",
+   "lod/ENERGY0_L2",
+   "ENERGY0"
+  ]
+ },
+ "ENERGY1": {
+  "levels": [
+   "lod/ENERGY1_L0",
+   "lod/ENERGY1_L1",
+   "lod/ENERGY1_L2",
+   "ENERGY1"
+  ]
+ },
+ "ENERGY2": {
+  "levels": [
+   "lod/ENERGY2_L0",
+   "lod/ENERGY2_L1",
+   "lod/ENERGY2_L2",
+   "ENERGY2"
+  ]
+ },
+ "ENERGY3": {
+  "levels": [
+   "lod/ENERGY3_L0",
+   "lod/ENERGY3_L1",
+   "ENERGY3"
+  ]
+ },
+ "LAVA0": {
+  "levels": [
+   "lod/LAVA0_L0",
+   "lod/LAVA0_L1",
+   "lod/LAVA0_L2",
+   "LAVA0"
+  ]
+ },
+ "LAVA1": {
+  "levels": [
+   "lod/LAVA1_L0",
+   "lod/LAVA1_L1",
+   "lod/LAVA1_L2",
+   "LAVA1"
+  ]
+ },
+ "LAVA2": {
+  "levels": [
+   "lod/LAVA2_L0",
+   "lod/LAVA2_L1",
+   "LAVA2"
+  ]
+ },
+ "LAVA3": {
+  "levels": [
+   "lod/LAVA3_L0",
+   "lod/LAVA3_L1",
+   "lod/LAVA3_L2",
+   "LAVA3"
+  ]
+ },
+ "LIZARD0": {
+  "levels": [
+   "lod/LIZARD0_L0",
+   "lod/LIZARD0_L1",
+   "lod/LIZARD0_L2",
+   "LIZARD0"
+  ]
+ },
+ "LIZARD1": {
+  "levels": [
+   "lod/LIZARD1_L0",
+   "lod/LIZARD1_L1",
+   "lod/LIZARD1_L2",
+   "LIZARD1"
+  ]
+ },
+ "LIZARD2": {
+  "levels": [
+   "lod/LIZARD2_L0",
+   "lod/LIZARD2_L1",
+   "lod/LIZARD2_L2",
+   "LIZARD2"
+  ]
+ },
+ "LIZARD3": {
+  "levels": [
+   "lod/LIZARD3_L0",
+   "lod/LIZARD3_L1",
+   "lod/LIZARD3_L2",
+   "LIZARD3"
+  ]
+ },
+ "MANTIS0": {
+  "levels": [
+   "lod/MANTIS0_L0",
+   "lod/MANTIS0_L1",
+   "lod/MANTIS0_L2",
+   "MANTIS0"
+  ]
+ },
+ "MANTIS1": {
+  "levels": [
+   "lod/MANTIS1_L0",
+   "lod/MANTIS1_L1",
+   "lod/MANTIS1_L2",
+   "MANTIS1"
+  ]
+ },
+ "MANTIS2": {
+  "levels": [
+   "lod/MANTIS2_L0",
+   "lod/MANTIS2_L1",
+   "lod/MANTIS2_L2",
+   "MANTIS2"
+  ]
+ },
+ "MANTIS3": {
+  "levels": [
+   "lod/MANTIS3_L0",
+   "lod/MANTIS3_L1",
+   "lod/MANTIS3_L2",
+   "MANTIS3"
+  ]
+ },
+ "MONKEY0": {
+  "levels": [
+   "lod/MONKEY0_L0",
+   "lod/MONKEY0_L1",
+   "lod/MONKEY0_L2",
+   "MONKEY0"
+  ]
+ },
+ "MONKEY1": {
+  "levels": [
+   "lod/MONKEY1_L0",
+   "lod/MONKEY1_L1",
+   "lod/MONKEY1_L2",
+   "MONKEY1"
+  ]
+ },
+ "MONKEY2": {
+  "levels": [
+   "lod/MONKEY2_L0",
+   "lod/MONKEY2_L1",
+   "MONKEY2"
+  ]
+ },
+ "MONKEY3": {
+  "levels": [
+   "lod/MONKEY3_L0",
+   "lod/MONKEY3_L1",
+   "lod/MONKEY3_L2",
+   "MONKEY3"
+  ]
+ },
+ "ROBOT0": {
+  "levels": [
+   "lod/ROBOT0_L0",
+   "lod/ROBOT0_L1",
+   "lod/ROBOT0_L2",
+   "ROBOT0"
+  ]
+ },
+ "ROBOT1": {
+  "levels": [
+   "lod/ROBOT1_L0",
+   "lod/ROBOT1_L1",
+   "lod/ROBOT1_L2",
+   "ROBOT1"
+  ]
+ },
+ "ROBOT2": {
+  "levels": [
+   "lod/ROBOT2_L0",
+   "lod/ROBOT2_L1",
+   "lod/ROBOT2_L2",
+   "ROBOT2"
+  ]
+ },
+ "ROBOT3": {
+  "levels": [
+   "lod/ROBOT3_L0",
+   "lod/ROBOT3_L1",
+   "ROBOT3"
+  ]
+ },
+ "ROCK0": {
+  "levels": [
+   "lod/ROCK0_L0",
+   "lod/ROCK0_L1",
+   "lod/ROCK0_L2",
+   "ROCK0"
+  ]
+ },
+ "ROCK1": {
+  "levels": [
+   "lod/ROCK1_L0",
+   "lod/ROCK1_L1",
+   "lod/ROCK1_L2",
+   "ROCK1"
+  ]
+ },
+ "ROCK2": {
+  "levels": [
+   "lod/ROCK2_L0",
+   "lod/ROCK2_L1",
+   "lod/ROCK2_L2",
+   "ROCK2"
+  ]
+ },
+ "ROCK3": {
+  "levels": [
+   "lod/ROCK3_L0",
+   "lod/ROCK3_L1",
+   "ROCK3"
+  ]
+ },
+ "SHOGUN0": {
+  "levels": [
+   "lod/SHOGUN0_L0",
+   "lod/SHOGUN0_L1",
+   "lod/SHOGUN0_L2",
+   "SHOGUN0"
+  ]
+ },
+ "SHOGUN1": {
+  "levels": [
+   "lod/SHOGUN1_L0",
+   "lod/SHOGUN1_L1",
+   "lod/SHOGUN1_L2",
+   "SHOGUN1"
+  ]
+ },
+ "SHOGUN2": {
+  "levels": [
+   "lod/SHOGUN2_L0",
+   "lod/SHOGUN2_L1",
+   "lod/SHOGUN2_L2",
+   "SHOGUN2"
+  ]
+ },
+ "SHOGUN3": {
+  "levels": [
+   "lod/SHOGUN3_L0",
+   "lod/SHOGUN3_L1",
+   "lod/SHOGUN3_L2",
+   "SHOGUN3"
+  ]
+ }
+}

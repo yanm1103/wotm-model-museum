@@ -77,6 +77,15 @@ wireframe and bones. Viewing only: no game logic. Plan written on 2026-10-21.
   - The transparent "Save image" draws the scene over black and over white and rebuilds the alpha from the difference
     (additive parts like Kineticlops' body, fire and flares write no alpha, so the canvas alpha alone dropped them), then
     crops to the content (drops fully transparent margins).
+- **Detail levels / LOD (2026-11-10):** the monsters' `.NGP` files hold up to 4 levels of detail per LOD node (same skeleton;
+  index 0 is the coarsest). The costume's own `.glb` is the most detailed level the game draws (a last level with
+  `switchOutDis` 0, like Togera costume 3's A-pose mesh, is never drawn and is skipped). The "Detail (LOD)" chips under
+  "Costume" pick one; the last chip is the costume's own file. `python scripts/export-lods.py [NAME...]` (needs `WoTM/disc`
+  and `monglb.py --lod N` from the decomp repo) writes `public/models/lod/<COSTUME>_L<n>.glb` and `lod/index.json`
+  (`{ COSTUME: { levels: [...] } }`, the page reads it on start; a costume without an entry has no chips). Animation files:
+  costumes with no rigid parts (Congar, Magmo, Ultra-V...) share the costume's own files, since a level only changes the
+  skinned mesh; costumes with rigid parts export every animation per level (on Robo-47 level 0 none of the 161 files
+  matched the costume's), with files identical to the costume's or to another level's stored once.
 - **Bosses (2026-10-21):** "Plant boss", "Plant boss root" and "Cerebulon" (the final boss: costumes "stage 1: Mecha",
   "stage 2: Jelly", "stage 3") in the monster select. Monster and costume are separate selects; the costume one is hidden
   when the monster has a single costume.
